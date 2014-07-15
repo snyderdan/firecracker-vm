@@ -1,0 +1,319 @@
+{
+	"auto_complete":
+	{
+		"selected_items":
+		[
+			[
+				"inc",
+				"include"
+			],
+			[
+				"st",
+				"stack_bottom"
+			],
+			[
+				"stac",
+				"stack_top"
+			],
+			[
+				"sta",
+				"stack_top"
+			],
+			[
+				"stack_",
+				"stack_top"
+			],
+			[
+				"def",
+				"define"
+			],
+			[
+				"fv",
+				"fvm_output_t"
+			],
+			[
+				"m",
+				"my_fvm"
+			],
+			[
+				"s",
+				"sizeof"
+			],
+			[
+				"stack",
+				"stack_size"
+			],
+			[
+				"in",
+				"include"
+			],
+			[
+				"n",
+				"nbytes"
+			],
+			[
+				"fvm_",
+				"fvm_output_t"
+			],
+			[
+				"tr",
+				"try	Try/Except"
+			]
+		]
+	},
+	"buffers":
+	[
+		{
+			"file": "firecracker-vm.c",
+			"settings":
+			{
+				"buffer_size": 1265,
+				"line_ending": "Unix"
+			}
+		},
+		{
+			"file": "firecracker-vm.h",
+			"settings":
+			{
+				"buffer_size": 591,
+				"line_ending": "Unix",
+				"name": "/*"
+			}
+		},
+		{
+			"file": "Makefile",
+			"settings":
+			{
+				"buffer_size": 513,
+				"line_ending": "Unix",
+				"name": "$(CC)=gcc"
+			}
+		}
+	],
+	"build_system": "Packages/Makefile/Make.sublime-build",
+	"command_palette":
+	{
+		"height": 335.0,
+		"selected_items":
+		[
+			[
+				"Snippet: ",
+				"Snippet: main()"
+			]
+		],
+		"width": 392.0
+	},
+	"console":
+	{
+		"height": 0.0
+	},
+	"distraction_free":
+	{
+		"menu_visible": true,
+		"show_minimap": false,
+		"show_open_files": false,
+		"show_tabs": false,
+		"side_bar_visible": false,
+		"status_bar_visible": false
+	},
+	"file_history":
+	[
+		"/home/wm/.config/sublime-text-2/Packages/Default/Preferences.sublime-settings",
+		"/home/gridbug/codeybits/firecracker/firecracker-vm.c",
+		"/home/gridbug/codeybits/verse/custom.py",
+		"/home/gridbug/codeybits/fresh-flask/README.md",
+		"/home/gridbug/codeybits/fresh-flask/__init__.py",
+		"/home/gridbug/.config/sublime-text-2/Packages/Default/Default (Linux).sublime-keymap",
+		"/home/gridbug/.config/sublime-text-2/Packages/Default/Preferences.sublime-settings",
+		"/home/gridbug/.config/sublime-text-2/Packages/User/Preferences.sublime-settings"
+	],
+	"find":
+	{
+		"height": 36.0
+	},
+	"find_in_files":
+	{
+		"height": 0.0,
+		"where_history":
+		[
+		]
+	},
+	"find_state":
+	{
+		"case_sensitive": false,
+		"find_history":
+		[
+			"stad",
+			"outputs",
+			"free",
+			"line",
+			"delete_",
+			"delete",
+			"):		"
+		],
+		"highlight": true,
+		"in_selection": false,
+		"preserve_case": false,
+		"regex": false,
+		"replace_history":
+		[
+		],
+		"reverse": false,
+		"show_context": true,
+		"use_buffer2": true,
+		"whole_word": false,
+		"wrap": true
+	},
+	"groups":
+	[
+		{
+			"selected": 0,
+			"sheets":
+			[
+				{
+					"buffer": 0,
+					"file": "firecracker-vm.c",
+					"settings":
+					{
+						"buffer_size": 1265,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								1013,
+								1013
+							]
+						],
+						"settings":
+						{
+							"syntax": "Packages/C++/C.tmLanguage",
+							"translate_tabs_to_spaces": false
+						},
+						"translation.x": 0.0,
+						"translation.y": 48.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 1,
+					"file": "firecracker-vm.h",
+					"settings":
+					{
+						"buffer_size": 591,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								359,
+								359
+							]
+						],
+						"settings":
+						{
+							"auto_name": "/*",
+							"syntax": "Packages/C++/C.tmLanguage"
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				},
+				{
+					"buffer": 2,
+					"file": "Makefile",
+					"settings":
+					{
+						"buffer_size": 513,
+						"regions":
+						{
+						},
+						"selection":
+						[
+							[
+								466,
+								466
+							]
+						],
+						"settings":
+						{
+							"auto_name": "$(CC)=gcc",
+							"syntax": "Packages/Makefile/Makefile.tmLanguage"
+						},
+						"translation.x": 0.0,
+						"translation.y": 0.0,
+						"zoom_level": 1.0
+					},
+					"type": "text"
+				}
+			]
+		}
+	],
+	"incremental_find":
+	{
+		"height": 0.0
+	},
+	"input":
+	{
+		"height": 0.0
+	},
+	"layout":
+	{
+		"cells":
+		[
+			[
+				0,
+				0,
+				1,
+				1
+			]
+		],
+		"cols":
+		[
+			0.0,
+			1.0
+		],
+		"rows":
+		[
+			0.0,
+			1.0
+		]
+	},
+	"menu_visible": true,
+	"output.exec":
+	{
+		"height": 100.0
+	},
+	"replace":
+	{
+		"height": 66.0
+	},
+	"save_all_on_build": true,
+	"select_file":
+	{
+		"height": 0.0,
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"select_project":
+	{
+		"height": 0.0,
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"show_minimap": true,
+	"show_open_files": false,
+	"show_tabs": true,
+	"side_bar_visible": true,
+	"side_bar_width": 150.0,
+	"status_bar_visible": true
+}
