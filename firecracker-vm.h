@@ -29,8 +29,8 @@ typedef struct fvm_s
 int main(int argc, char const *argv[]);
 void flip_bytes(byte nbytes, byte data[]);
 
-void fvm_init(fvm_t *fvm, unsigned int num_outputs, unsigned int stack_size);
-void fvm_free(fvm_t *fvm);
+int fvm_init(fvm_t *fvm, unsigned int num_outputs, unsigned int stack_size);
+int fvm_free(fvm_t *fvm);
 
 
 #endif
