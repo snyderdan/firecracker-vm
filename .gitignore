@@ -39,5 +39,9 @@ ehthumbs.db
 Icon?
 Thumbs.db
 
-build/*
-firecracker-vm
+firecracker-tester
+*.gcno
+*.gcda
+*.sublime-workspace
+breaks
+gmon.out
