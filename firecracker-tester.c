@@ -83,6 +83,15 @@ int main(int argc, char const *argv[])
 			printf("Parsing command %d\n", i);
 			printf("Command: %d ; Data: %p\n", fat_commands[i].type, fat_commands[i].data);	
 		}
+		uint normalized_commands_len = fvm_count_normalized_commands(fat_commands, fat_commands_len);
+		fvm_command_t * normalized_commands = calloc(normalized_commands_len, sizeof(fvm_command_t));
+		if(fvm_normalize_commands(fat_commands, fat_commands_len, normalized_commands)){
+			printf("Error normalizing\n");
+		}
+		for (uint i = 0; i < normalized_commands_len; ++i){
+			printf("Normalizing command %d\n", i);
+			printf("Command: %d ; Data: %p\n",normalized_commands[i].type, normalized_commands[i].data);	
+		}
 	}
 	fvm_free(my_fvm);
 	printf("Freed FVM\n");

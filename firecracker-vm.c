@@ -20,52 +20,14 @@
 #ifndef STARTS_WITH
 #define STARTS_WITH(buf,c) (strncmp((buf), (c), strlen(c)) == 0)
 #endif
-/*
-	Firecracker VM parses a single input stream of mixed commands and data and splits it into two parts:
-		The Stack - Composed of data
-		The Commands - Macros to execute with data on the stack
-	
-	It defines a few basic Commands, which are baked in to the Firecracker Virtual Machine:
-		Push => PU[n][data1][data2][...][datan]
-			n <-- unsigned 8bit number of bytes to push to stack
-			data <-- bytes to push to stack, so datan is on top
-			Pushes [n] bytes of [data] to top of stack
-		Pop => PO
-			Pops one uint8_t from the top of the stack
-		Delay => DE[t]
-			t <-- unsigned 32bit big-endian number of nanoseconds
-			Pauses FVM for [t] nanoseconds
-		Write => WR[n][d]
-			n <-- unsigned 8bit output number
-			d <-- unsigned 8bit PWM Duty Cycle
-			Update output [n] to run at duty cycle [d]
-
-	For simplicity, only the Push next_command may write data to the stack for other Commands,
-	which pop from the stack to fill their parametersso the syntax shown above must be rewritten. 
-	For example:
-
-	WR[0x00][0xff] --> PU[0x02][0xff][0x00]WR
-[
-	WR[0x00][0x80];DE[10^9] --> PU[0x06][10^9][0x80][0x00];WR;DE
-
-	The PU commands could alse be broken up as follows:
-
-	PU[0x06][10^9][0x80][0x00];WR;DE --> PU[0x02][0x80][0x00];WR;PU[0x04][10^9];DE
-
-	While this is less efficient, it allows execution of the Write Command before the Delay Command is ready.
-
-
- */
-
-
 
 void flip_bytes(uint8_t data[], uint8_t nbytes)
 {
 	for(uint8_t i = 0; i < nbytes/2; i++){
 		// Naive Swap
 		uint8_t temp = data[i];
-		data[i] = data[nbytes - i];
-		data[nbytes - i] = temp;
+		data[i] = data[nbytes - (i+1)];
+		data[nbytes - (i+1)] = temp;
 	}
 }
 
@@ -153,7 +115,6 @@ uint16_t fvm_count_normalized_commands(fvm_command_t commands[], uint16_t ncomma
 int8_t fvm_normalize_commands(fvm_command_t fat_commands[], uint16_t ncommands, fvm_command_t thin_commands[]){
 	/* Returns PU's with all data, plus commands to execute	 */
 	uint32_t datalen = 0;
-
 	// Figure out how much data we need to store
 	for (uint16_t i = 0; i < ncommands; i++){
 		if(fat_commands[i].type == PUSH_COMMAND){
@@ -196,15 +157,18 @@ int8_t fvm_normalize_commands(fvm_command_t fat_commands[], uint16_t ncommands, 
 	}
 	//Create PUSH Command(s)
 	fvm_command_t * thin_command_next_free = thin_commands;
-	while(data <= data_next_free){
-		uint16_t data_remaining = data_next_free - data;
+	uint8_t * data_next_unused = data;
+	uint8_t * data_end = data + datalen;
+	while(data_next_unused < data_end){
+		uint16_t data_remaining = data_end - data_next_unused;
 		assert(data_remaining > 0);
 		uint8_t push_data_len = MIN(datalen, 0xfe);
 		thin_command_next_free -> type = PUSH_COMMAND;
 		thin_command_next_free -> data = malloc(push_data_len + 1);
 		thin_command_next_free -> data[0] = push_data_len;
-		memmove(thin_command_next_free -> data + 1, data, push_data_len);
-		data += push_data_len;
+		memmove(thin_command_next_free -> data + 1, data_next_unused, push_data_len);
+		data_next_unused += push_data_len;
+		datalen -= push_data_len;
 		thin_command_next_free++;
 	}
 	//Populate remainder of commands

@@ -28,7 +28,7 @@ It defines a few basic Commands, which are baked in to the Firecracker Virtual M
 - Update output [n] to run at duty cycle [d]
 
 For simplicity, only the Push Command may write data to the stack for other Commands,
-which pop from the stack to fill their parametersso the syntax shown above must be rewritten. 
+which pop from the stack to fill their parameters so the syntax shown above must be rewritten. 
 For example:
 
 ```
