@@ -92,6 +92,9 @@ int main(int argc, char const *argv[])
 			printf("Normalizing command %d\n", i);
 			printf("Command: %d ; Data: %p\n",normalized_commands[i].type, normalized_commands[i].data);	
 		}
+		if(fvm_execute_normalized_commands(my_fvm, normalized_commands, normalized_commands_len)){
+			printf("Error executing\n");
+		}
 	}
 	fvm_free(my_fvm);
 	printf("Freed FVM\n");

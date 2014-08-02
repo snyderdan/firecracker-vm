@@ -21,6 +21,10 @@
 #define STARTS_WITH(buf,c) (strncmp((buf), (c), strlen(c)) == 0)
 #endif
 
+#ifndef NS_PER_SEC
+#define NS_PER_SEC 1000000000
+#endif
+
 void flip_bytes(uint8_t data[], uint8_t nbytes)
 {
 	for(uint8_t i = 0; i < nbytes/2; i++){
@@ -47,10 +51,11 @@ void fvm_free(fvm_t *fvm){
 }
 
 int8_t fvm_push(fvm_t *fvm, uint8_t bytes[], uint8_t nbytes){
-	if(fvm->stack_top + nbytes > fvm->stack_bottom + fvm->stack_size - 1){
+	if(fvm -> stack_top + nbytes > fvm -> stack_bottom + fvm -> stack_size - 1){
 		return -1;
 	}
 	memmove(fvm->stack_top, bytes, nbytes);
+	fvm -> stack_top += nbytes;
 	return 0;
 }
 
@@ -71,20 +76,41 @@ int8_t fvm_write(fvm_t *fvm, uint8_t output_num, uint8_t duty_cycle){
 }
 
 int8_t fvm_write_normalized(fvm_t *fvm){
-	if(fvm_pop(fvm, 2) != 0){
+	if(fvm_pop(fvm, 2)){
 		return -1;
 	}
-	return fvm_write(fvm, *(fvm -> stack_top +2), *(fvm -> stack_top +1));
+	return fvm_write(fvm, *(fvm -> stack_top +1), *(fvm -> stack_top));
 }
 
 int8_t fvm_delay(uint32_t delay_time){
-	const struct timespec delay_timespec = {.tv_sec  = 0, .tv_nsec = delay_time};
+	const struct timespec delay_timespec = {
+			.tv_sec  = delay_time / NS_PER_SEC, 
+			.tv_nsec = delay_time % NS_PER_SEC
+	};
 	if(nanosleep(&delay_timespec, NULL)){
 		return -1;
 	}
 	return 0;
 }
 
+int8_t fvm_delay_normalized(fvm_t *fvm){
+	if(fvm_pop(fvm, 4)){
+		return -1;
+	}
+	/*
+	Due to the wonders of reordering bytes to preserve the stack, 
+	our delay_time is now little-endian, 
+	despite having been passed in as big-endian
+
+	We'll flip it if needed
+	*/
+	#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+	flip_bytes(fvm -> stack_top, 4);
+	#endif
+	uint32_t delay_time = *((uint32_t*) fvm -> stack_top);
+
+	return fvm_delay(delay_time);
+}
 
 uint16_t fvm_count_normalized_commands(fvm_command_t commands[], uint16_t ncommands){
 	uint16_t count = 0;
@@ -135,21 +161,23 @@ int8_t fvm_normalize_commands(fvm_command_t fat_commands[], uint16_t ncommands, 
 	uint8_t * data = malloc(datalen);
 	uint8_t * data_next_free = data;
 	for (uint16_t i = 0; i < ncommands; i++){
-		if(fat_commands[i].type == PUSH_COMMAND){
+		fvm_command_t current_command = fat_commands[ncommands - (i+1)];
+		//Must iterate through backwards to preserve order
+		if(current_command.type == PUSH_COMMAND){
 			//don't flip
-			memmove(data_next_free, fat_commands[i].data+1, fat_commands[i].data[0]);
-			data_next_free += fat_commands[i].data[0];
-		}else if(fat_commands[i].type == POP_COMMAND){
+			memmove(data_next_free, current_command.data+1, current_command.data[0]);
+			data_next_free += current_command.data[0];
+		}else if(current_command.type == POP_COMMAND){
 			//pass
-		}else if(fat_commands[i].type == WRITE_COMMAND){
-			if(fat_commands[i].data){
-				memmove(data_next_free, fat_commands[i].data, 2);
+		}else if(current_command.type == WRITE_COMMAND){
+			if(current_command.data){
+				memmove(data_next_free, current_command.data, 2);
 				flip_bytes(data_next_free, 2);
 				data_next_free += 2;
 			}
-		}else if(fat_commands[i].type == DELAY_COMMAND){
-			if(fat_commands[i].data){
-				memmove(data_next_free, fat_commands[i].data, 4);
+		}else if(current_command.type == DELAY_COMMAND){
+			if(current_command.data){
+				memmove(data_next_free, current_command.data, 4);
 				flip_bytes(data_next_free, 4);
 				data_next_free += 4;
 			}
@@ -185,10 +213,22 @@ int8_t fvm_normalize_commands(fvm_command_t fat_commands[], uint16_t ncommands, 
 
 uint16_t fvm_count_fat_commands(uint8_t text[], size_t len){
 	uint16_t count = 0;
-	for(uint i = 0; i < len; i++){
-		if(text[i] == ';' || i == len - 1){
-			count++;
+	uint8_t *text_end = text + len;
+	while(text < text_end){
+		if(STARTS_WITH((char *)text, FVM_PUSH_MNEMONIC)){
+			unsigned int datalen = text[2];
+			text += datalen + 1; //skip data + datalen byte
+		}else if(STARTS_WITH((char *)text, FVM_POP_MNEMONIC)){
+			text += 0; //no data to skip
+		}else if(STARTS_WITH((char *)text, FVM_WRITE_MNEMONIC)){
+			text += 2; //skip 16bits
+		}else if(STARTS_WITH((char *)text, FVM_DELAY_MNEMONIC)){
+			text += 4; //skip 32bits
+		}else{
+			return -1;
 		}
+		text += FVM_MNEMONIC_LENGTH + 1;//skip semicolon and mnemonic
+		count++;
 	}
 	return count;
 }
@@ -228,25 +268,51 @@ int8_t fvm_parse_all_fat_commands(uint8_t text[], size_t len, fvm_command_t comm
 	return 0;
 }
 
+void fvm_print_output_state(fvm_t * fvm){
+	printf("|");
+	for(uint i = 0; i < fvm -> num_outputs; i++){
+		printf("0x%02x|", fvm -> outputs[i].pwm_val );
+	}
+	printf("\n" );
+}
+
+
 int8_t fvm_execute_normalized_commands(fvm_t * fvm, fvm_command_t commands[], uint16_t ncommands){
+	int8_t retval = 0;
+	printf("FVM Status: %d Outputs, %d Bytes Stack\n", fvm -> num_outputs, fvm -> stack_size);
+	fvm_print_output_state(fvm);
 	for (uint16_t i = 0; i < ncommands; ++i)
-	{
+	{	
 		switch(commands[i].type){
 		case PUSH_COMMAND:
-			fvm_push(fvm, commands[i].data+1, commands[i].data[0]);
+			printf("%s: %02x Bytes \n", FVM_PUSH_MNEMONIC, commands[i].data[0]);
+			if((retval = fvm_push(fvm, commands[i].data+1, commands[i].data[0]))){
+				return retval;
+			}
 			break;
 		case POP_COMMAND:
-			fvm_pop(fvm, 1);
+			printf("%s\n", FVM_POP_MNEMONIC);
+			if((retval = fvm_pop(fvm, 1))){
+				return retval;
+			}
 			break;
 		case WRITE_COMMAND:
-			fvm_write_normalized(fvm);
+			printf("%s\n", FVM_WRITE_MNEMONIC);
+			if((retval = fvm_write_normalized(fvm))){
+				return retval;
+			}
 			break;
 		case DELAY_COMMAND:
+			printf("%s\n", FVM_DELAY_MNEMONIC);
+			if((retval = fvm_delay_normalized(fvm))){
+				return retval;
+			}
 			break;
 		default:
 			return -1;
 		}
+		fvm_print_output_state(fvm);
 	}
-	return 0;
+	return retval;
 }
  

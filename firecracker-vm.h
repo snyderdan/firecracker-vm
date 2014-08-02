@@ -53,7 +53,9 @@ void fvm_free(fvm_t *fvm);
 int8_t fvm_push(fvm_t *fvm, uint8_t bytes[], uint8_t nbytes);
 int8_t fvm_pop(fvm_t *fvm, uint8_t nbytes);
 int8_t fvm_write(fvm_t *fvm, uint8_t output_num, uint8_t duty_cycle);
+int8_t fvm_write_normalized(fvm_t *fvm);
 int8_t fvm_delay(uint32_t delay_time);
+int8_t fvm_delay_normalized(fvm_t *fvm);
 
 uint16_t fvm_count_normalized_commands(fvm_command_t commands[], uint16_t ncommands);
 int8_t fvm_normalize_commands(fvm_command_t fat_commands[], uint16_t ncommands, fvm_command_t thin_commands[]);
