@@ -40,6 +40,8 @@ CON
   FVM_IF_OPCODE    = 16
   FVM_JUMP_OPCODE  = 17
   FVM_DEFMC_OPCODE = 18
+  FVM_CALMC_OPCODE = 19
+  FVM_RETMC_OPCODE = 20
 
 OBJ 
   
@@ -50,7 +52,7 @@ VAR
 
   word FVM_macros[FVM_DEFAULT_NUM_MACROS]     ' macro addresses (words allocated first)
 
-  byte FVM_buffer[FVM_DEFAULT_BUFFER_SIZE]    ' inputer buffer
+  byte FVM_buffer[FVM_DEFAULT_BUFFER_SIZE]    ' input buffer
 
   byte FVM_data_stack[FVM_DEFAULT_STACK_SIZE] ' Data stack that operations are performed on
 
@@ -65,8 +67,14 @@ VAR
 PUB Start
 
   FVM_buffer_lock := locknew
+  cognew(StartRecv, FVM_buffer)
+  cognew(@fvm_entry, @FVM_macros)
   
 
+PUB StartRecv
+
+  ' call firecracker-recv.start
+  
 DAT
 
 fvm_entry
@@ -96,9 +104,9 @@ fvm_wait_lock
 
                         rdbyte  G0, bufin_ptr                 ' load filled index
                         
-                        cmp     G0, buf_proc            wz    ' if our index is equal to filled index
-              if_z      jmp     #fvm_end_processing           ' end processing - no data to process
-                        mov     G1, buff_ptr                  ' move buffer ptr into G1
+                        cmp     G0, buf_proc            wz    ' ? - our index is equal to filled index
+              if_z      jmp     #fvm_end_processing           ' Y - end processing; no data to process
+                        mov     G1, buff_ptr                  ' N - move buffer ptr into G1
                         add     G1, buf_proc                  ' go to next opcode to process
 
                         rdbyte  opcode, G1                    ' read next opcode
@@ -125,22 +133,21 @@ fvm_opcode_table                                              ' HUB access is al
                         jmp     #fvm_dup
                         jmp     #fvm_if
                         jmp     #fvm_jmp
-                        jmp     #fvm_defmc                    
+                        jmp     #fvm_defmc
+                        jmp     #fvm_calmc                  
 
 fvm_nop
                         add     buf_proc, #1
-                        jmp     fvm_end_processing
+                        jmp     #fvm_end_processing
 
 fvm_push
-                        sub     G0, #1                        ' we know that we are filled at least 1 greater than processed
-                        cmp     G0, buf_proc            wz    ' so compare processed to (filled - 1)
-              if_z      jmp     fvm_end_processing            ' if they're equal, we are missing the remaining data                                       
-                        add     G0, #1                        ' fix filled ptr
-
-                        rdbyte  G1, G0                        ' read data length
-                        sub     G0, 
+                        mov     G1, #1
+                        call    #fvm_bufcheck
                         
 fvm_pop
+                        mov     G1, #1
+                        call    #fvm_bufcheck
+                        
 fvm_write
 fvm_delay
 fvm_inc
@@ -154,17 +161,49 @@ fvm_test
 fvm_not
 fvm_swap
 fvm_dup
+                        mov     G1, #1
+                        call    #fvm_bufcheck
+                        
 fvm_if
+                        mov     G1, #3
+                        call    #fvm_bufcheck
 fvm_jmp
+                        mov     G1, #1
+                        call    #fvm_bufcheck
 fvm_defmc
+                        mov     G1, #1
+                        call    #fvm_bufcheck
 
+fvm_calmc
+fvm_retmc             
+
+fvm_bufcheck            ' upon entry: G0 should contain filled index
+                        '             buf_proc should contain processed index
+                        '             G1 should contain length of data to check for
+                        '
+                        ' upon exit:  returns to call if enough data present
+                        '             ends processing if there is not enough data
+                        '             HUB access is aligned with first instruction upon return
+                        '
+                        mov     G2, G0                                     
+                        cmp     G2, buf_proc            wz,wc ' ? filled > processed
+              if_be     jmp     #fvm_bufcheck_00              ' N - check buffer unnormalized
+                                                              ' Y - check normalized
+                        sub     G2, G1                        ' adjust for length of data 
+                        cmp     G2, buf_proc            wz,wc ' ? (filled - len) > processed
+              if_a      jmp     #fvm_bufcheck_ret             ' Y - return to process
+                        jmp     #fvm_end_processing           ' N - need to wait for data
+fvm_bufcheck_00
+
+fvm_bufcheck_ret
+                        ret
                                                                   
 fvm_end_processing
 
                         lockret buflock                       ' return lock
                         mov     G0, cnt                       ' load clock counter
                         add     G0, #14                       ' add and waitcnt is 10 clocks + 14 is 24 clocks = max time for someone else to grab lock
-                        nop                                   ' align timing
+                        waitcnt G0, #0                        ' wait 
                         jmp     #fvm_process                  ' reloop
                         
                                                                                                                       
