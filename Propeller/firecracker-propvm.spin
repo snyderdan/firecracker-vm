@@ -38,11 +38,12 @@ CON
   FVM_SWAP_OPCODE  = 14
   FVM_DUP_OPCODE   = 15
   FVM_IF_OPCODE    = 16
-  FVM_JUMP_OPCODE  = 17
-  FVM_DEFMC_OPCODE = 18
-  FVM_CALMC_OPCODE = 19
-  FVM_RETMC_OPCODE = 20
-  FVM_DLAYM_OPCODE = 21
+  FVM_JUMP_OPCODE  = 17         ' jump
+  FVM_JMPR_OPCODE  = 18         ' jump relative
+  FVM_DEFMC_OPCODE = 19
+  FVM_CALMC_OPCODE = 20
+  FVM_RETMC_OPCODE = 21
+  FVM_DLAYM_OPCODE = 22
 
 OBJ 
   
@@ -157,7 +158,7 @@ fvm_push
                         add     G1, #2                        ' add push opcode and length byte
                         call    #fvm_getdata                  ' ensure data is available
                         add     G0, #2                        ' go to data in buffer
-                        add     buf_proc, G1                  ' update processed index
+                        add     count, G1                     ' update count of processed bytes
                         sub     G1, #2                        ' adjust G1 to data length
                         
                         mov     G2, stack_base                ' load stack pointer
@@ -166,9 +167,9 @@ fvm_push
                         and     stack_ind, #$FF               ' cap at 8 bits            
 
 fvm_push_00
-                        rdbyte  G3, buf_addr                  ' read next byte
+                        rdbyte  G3, G0                        ' read next byte
                         sub     G1, #1                  wz    ' decrement counter
-                        add     buf_addr, #1                  ' increment data buffer pointer
+                        add     G0, #1                        ' increment data buffer pointer
                         wrbyte  G3, G2                        ' store in stack
                         add     G2, #1                        ' go to next stack value
               if_nz     jmp     #fvm_push_00                  ' reloop for data length 
@@ -187,22 +188,24 @@ fvm_pop
                         
 fvm_write
                         mov     G1, #3                        ' pin number and value
-                        call    #fvm_bufcheck                 ' ensure data is available
-                        add     buf_addr, #1                  ' go to pin number
-                        rdbyte  G0, buf_addr                  ' read pin number
+                        call    #fvm_getdata                  ' ensure data is available
+                        add     G0, #1                        ' go to pin number
+                        rdbyte  G1, G0                        ' read pin number
                         mov     G2, pwm_base                  ' load pwm base
-                        add     buf_addr, #1                  ' go to value
-                        rdbyte  G3, buf_addr                  ' read value into G3
-                        and     G0, #$0F                      ' cap at 4 bits (16 pins)
-                        shl     G0, #2                        ' multiply by 4
-                        
-                        add     G2, G0                        ' go to offset in PWM table
+                        add     G0, #1                        ' go to value
+                        rdbyte  G3, G0                        ' read value into G3
+                        and     G1, #$0F                      ' cap at 4 bits (16 pins)
+                        shl     G1, #2                        ' multiply by 4
+
+                        add     G2, G1                        ' go to offset in PWM table
                         shl     G3, #24                       ' convert to 32-bit value for processing
-                        nop
+                        and     G1, write_mask                ' set all lower bits to 1 
                         nop                                   ' align timing
                         wrlong  G3, G2                        ' store value in table
 
-                        jmp     #fvm_end_processing           ' exit                          
+                        jmp     #fvm_end_processing           ' exit
+
+write_mask    long      $00FF_FFFF                         
                         
 fvm_delay
 ''
@@ -252,11 +255,8 @@ fvm_swap
 fvm_dup
                         mov     G1, #2
                         call    #fvm_bufcheck
-                        add     buf_addr, G1                  ' go to count byte
-                        rdbyte  G0, buf_addr                  ' get count
-                        mov     G2, stack_base                ' load stack base
 fvm_if
-                        mov     G1, #4                        ' opcode+condition+
+                        mov     G1, #4                        ' opcode+condition+following instruction (2 bytes for jump)
                         call    #fvm_bufcheck
 fvm_jmp
                         mov     G1, #2
@@ -326,7 +326,7 @@ fvm_getdata             ' gets data from either buffer or macro area
 ''   
 
                         or      macro, macro                  ' ? macro area
-              if_nz     jmp     fvm_getdata_01                ' Y - get data from macro
+              if_nz     jmp     #fvm_getdata_01               ' Y - get data from macro
                                                               ' N - get data from buffer
 fvm_getdata_00
                         lockset buflock                 wc    ' attempt lock set
@@ -338,7 +338,7 @@ fvm_getdata_00
                         call    #fvm_bufcheck                 ' check for available data
                         mov     G0, buf_base                  ' load G0 with buffer pointer
                         add     G0, buf_proc                  ' go to next process index
-                        jmp     fvm_getdata_ret               ' exit
+                        jmp     #fvm_getdata_ret              ' exit
 
 fvm_getdata_01
                         mov     G2, macno                     ' move in macro number
@@ -358,7 +358,7 @@ fvm_getdata_01
               if_ae     mov     G0, macro                     ' Y - return macro address
 fvm_getdata_ret   
               if_ae     ret                                   '    
-                        jmp     fvm_err_processing            ' N - end processing with error
+                        jmp     #fvm_err_processing           ' N - end processing with error
                                                                                                                
 
 fvm_bufcheck            ' upon entry: G0 should contain filled index
@@ -381,10 +381,17 @@ fvm_bufcheck_ret
 fvm_err_processing                                                                 
 fvm_end_processing
                         or      macro, macro            wz
-              if_z      lockclr buflock                       ' clear lock
-              if_z      add     buf_proc, count               ' if not in a macro, add count to buffer processed index
-              if_nz     add     macro, count                  ' otherwise add to macro address
+              if_z      jmp     #fvm_end_processing_00        ' if no macro address, it's through the buffer
+
+                        add     macro, count                  ' otherwise add to macro address
+                        xor     count, count                  ' zero count 
+                        jmp     #fvm_process                  ' reloop   
+                          
+fvm_end_processing_00
+                        lockclr buflock                       ' clear lock
+                        add     buf_proc, count               ' if not in a macro, add count to buffer processed index
                         xor     count, count                  ' zero count
+                        
                         mov     G0, cnt                       ' load clock counter
                         add     G0, #14                       ' add and waitcnt is 10 clocks + 14 is 24 clocks = max time for someone else to grab lock
               if_z      waitcnt G0, #0                        ' wait if we're dealing with a buffer
