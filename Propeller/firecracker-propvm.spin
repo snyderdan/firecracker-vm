@@ -80,6 +80,12 @@ PUB StartRecv
   
 DAT
 
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+''
+''   fvm_entry - firecracker VM 
+''
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+
 fvm_entry
                         '
                         ' load pointer from par and calculate addresses for variables
@@ -205,6 +211,40 @@ fvm_write
                         jmp     #fvm_end_processing           ' exit                          
                         
 fvm_delay
+''
+'' FVM_DELAY macro takes an unsigned 32-bit integer in nano-seconds.
+'' of course, we are only running at 80 MHz so doing nano-seconds is tough.
+'' the function waits a minimum of 1200 ns, and has a resolution of 100 ns
+''
+''
+                        mov     G0, stack_base                ' stack base
+                        add     G0, stack_ind                 ' go to stack pointer
+                        xor     G2, G2                        ' zero G2 (division result) 
+                        nop                                   ' read byte by byte to avoid alignment issues
+                        rdbyte  G1, G0                        ' read byte
+                        shl     G1, #24                       ' shift up
+                        add     G0, #1                        ' go to next byte
+                        rdbyte  G2, G0                        ' read byte
+                        shl     G2, #16                       ' shift up
+                        add     G0, #1                        ' go to next byte
+                        rdbyte  G3, G0                        ' read byte
+                        shl     G3, #8                        ' shift up
+                        add     G0, #1                        ' go to next byte
+                        rdbyte  G4, G0                        ' read byte
+                        or      G4, G3
+                        or      G4, G2
+                        or      G4, G1                        ' construct number in G4
+
+                        sub     G4, num1200             wz,wc ' adjust remaining time
+              if_be     jmp     #fvm_end_processing           ' if time is not positive, we leave
+fvm_delay_00
+                        sub     G4, #100                wz,wc ' 100ns per loop
+              if_a      jmp     #fvm_delay_00                 ' reloop
+
+                        jmp     #fvm_end_processing                                       
+                        
+
+                                                          
 fvm_inc
 fvm_dec
 fvm_add
@@ -218,9 +258,11 @@ fvm_swap
 fvm_dup
                         mov     G1, #2
                         call    #fvm_bufcheck
-                        
+                        add     buf_addr, G1                  ' go to count byte
+                        rdbyte  G0, buf_addr                  ' get count
+                        mov     G2, stack_base                ' load stack base
 fvm_if
-                        mov     G1, #4
+                        mov     G1, #4                        ' opcode+condition+
                         call    #fvm_bufcheck
 fvm_jmp
                         mov     G1, #2
@@ -258,7 +300,8 @@ fvm_end_processing
                         jmp     #fvm_process                  ' reloop
                         
                                                                                                                       
-                                                        
+
+num1200       long      1200                                                       
 num512        long      512
 
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
@@ -267,6 +310,7 @@ G0            res       1
 G1            res       1
 G2            res       1
 G3            res       1
+G4            res       1
 '
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 opcode        res       1       ' current opcode processed
@@ -290,6 +334,7 @@ DAT
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 ''
+''   hires - PWM driver 
 ''   Code copied from PropPWM and modified for 16 outputs instead of all 32
 ''   allows for easier management of memory, as well as half the memory use
 ''
