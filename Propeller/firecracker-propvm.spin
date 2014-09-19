@@ -1,15 +1,42 @@
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-'
-' So here's the plan. We're gonna have a heap to define all of your functions/macros.
-' It will be (32KB - codesize) * 2 as I am looking into accessing EEPROM for memory
-' extensions. I may also implement a feature to save macros. I believe there is a
-' 256 byte limit on macro sizes but that does not stop you from calling macros from
-' other macros.
-'
-' Stack size will be there will also be a 256 byte recieving buffer, and somewhere
-' between 256 and 512 bytes of stack space. The heap will be huge though. Well
-' relatively speaking
-'
+''
+'' Firecracker VM Source
+''  _________________________
+'' |        Pin Table        |
+'' |____pin____|___purpose___|
+'' |           |             |
+'' |   0-15    |   outputs   |
+'' |    16     |     SDA     |
+'' |    17     |     SCL     |
+'' |    18     |    SCLK     |
+'' |    19     |    MOSI     |
+'' |    20     |    MISO     |
+'' |    21     |     CS      |
+'' |    22     |  soft reset |
+'' |    23     | amp control |
+'' |   24-31   |   unused    |
+'' |___________|_____________|
+''
+''
+'' There are numerous protocols to communicate with Firecracker, so the first thing
+'' that is done, is figuring out which configuration we are using. The following is how
+'' to initialize each of the possible supported communication protocols. Wait at least 200ms
+'' upon powerup before initializing. If an error occurs during initialization, pins 16 and
+'' 20 will be driven high, indicating a selection was not made. Firecracker must then be soft
+'' reset before being connected to again.
+''
+'' SPI -
+''      First, set the clock to the desired clock polarity. If you just leave it at zero,
+''      it defaults to a polarity of 0, which means clock is normally low and data propigated
+''      on the rising edge, and read on the falling edge. The CS line will follow the clock
+''      polarity. After the clock line is set, drive the MOSI line high to indicate SPI.
+''      The Firecracker will respond by driving the MISO line high.
+''      As soon as the MOSI line is dropped low, FVM will be ready for processing. FVM looks
+''      for a positive edge, so if the line is high when FVM gets control from the boot
+''      loader, it will not initialize until the line goes low, and is then raised again.
+''      FVM will not respond on the MISO line if this is the case. Response time should be
+''      within 5us.
+''
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
 CON
@@ -44,12 +71,10 @@ CON
   FVM_CALMC_OPCODE = 20
   FVM_RETMC_OPCODE = 21
   FVM_DLAYM_OPCODE = 22
+  FVM_SAVMC_OPCODE = 23
+  FVM_DELMC_OPCODE = 24
 
-OBJ 
-  
-  ' propPWM
-  ' firecracker-recv
-  
+                                     
 VAR
 
   long FVM_PWM_table[FVM_DEFAULT_NUM_OUTPUTS] ' PWM outputs          
@@ -70,17 +95,13 @@ VAR
   
 PUB Start
 
+  dira := $0000_FFFF | spi_misomask | i2c_sdamask       ' configure outputs for our purposes   
+  
   FVM_buffer_lock := locknew
-  cognew(StartRecv, FVM_buffer)
   cognew(@hires, @FVM_PWM_table)
   cognew(@fvm_entry, @FVM_PWM_table)
-  
 
-PUB StartRecv
-
-  ' call firecracker-recv.start
-  
-DAT
+DAT FireCrackerVM
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 ''
@@ -151,7 +172,7 @@ fvm_opcode_table                                              ' HUB access is al
                         jmp     #fvm_jmp
                         jmp     #fvm_defmc
                         jmp     #fvm_calmc
-                        jmp     #fvm_dlaym                 
+                        jmp     #fvm_dlaym                
 
 fvm_nop
 ''
@@ -514,8 +535,8 @@ num512        long      512
 ' experimental delay using counter and waitpeq
 '
 ' main issue is that each clock is 12.5 ns, so we can't really subtract
-' 12.5 ns and there is no way to accumulate the .5 without getting rid
-' of the hopes of 12.5 ns resolution. And at that rate I may as well
+' 12.5 ns and there is no way to accumulate the .5 without going to
+' 25 ns resolution. And at that rate I may as well
 ' wait the 100 ns with no counter. 
 ' 
 delay_ctr     long      %0_00100_000_00000000_000000_000_010000   ' use pin 16 for NCO, reads into pin 17
@@ -552,7 +573,7 @@ heap_base     res       1       ' base pointer to heap
 
                         FIT
 
-DAT
+DAT PWMHandler
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 ''
@@ -602,12 +623,12 @@ tableSet
                         mov     0000,pinTableBase            ' Store current HUBRAM address
                         add     pinTableBase,#4              ' Increment to next 32-bit int
                         djnz    counter,#setup               ' continue making table       
-                        
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
 dutyStart               
                         rdlong  dutyReg,pinAddresses         ' Read the value of the zero-th pin into the dutyReg
                         add     dutyTable,dutyReg       wc   ' Add to the accumulator
               if_c      or      buffer,pinMask00             ' If a carry was generated, set the pin to high
-              
+                           
                         rdlong  dutyReg,pinAddresses+1       ' repeat this process, each time going to the next pin, and next 
                         add     dutyTable+1,dutyReg       wc
               if_c      or      buffer,pinMask01 
@@ -698,3 +719,110 @@ buffer        res       1    ' Bitmask buffer
 pinAddresses  res       16   ' Table of HUBRAM addresses
 dutyTable     res       16   ' Table of accumulators for each pins duty cycle     
                         FIT
+
+CON
+''
+'' FireCracker SPI reciever -
+''      
+
+
+  spi_clk  = 18                 ' clock pin             
+  spi_mosi = 19                 ' master out / slave in
+  spi_miso = 20                 ' master in / slave out
+  spi_cs   = 21                 ' chip select
+  i2c_sda  = 16                 ' I2C data pin
+  i2c_scl  = 17                 ' I2C clock pin
+
+DAT SPIrecv
+
+recv_entry
+                        mov     phsa,#0
+                        mov     phsb,#0
+                        mov     frqa,#1
+                        mov     frqb,#1
+                        mov     ctra,recv_spicntl
+                        mov     ctrb,recv_i2ccntl
+recv_entry00
+                        or      phsa, phsb              wz    ' ? either pin gets a positive edge                     
+              if_z      jmp     #recv_entry00                 ' N - reloop if neither pin set
+
+
+                        cmp     ina, spi_mosimask       wz    ' ? SPI set
+              if_z      jmp     #spi_entry                    ' Y - go to SPI
+
+                        cmp     ina, i2c_sclmask              ' ? I2C set
+              if_z      jmp     #i2c_entry                    ' Y - go to I2C
+
+                        mov     dira, recv_errmask            ' move in error mask
+                        mov     outa, recv_errmask            ' drive all lines high
+                        cogid   zero
+                        cogstop zero                          ' kill service
+
+spi_entry
+                        or      dira, spi_misomask            ' configure pin(s) for output
+
+                        mov     frqa,#0
+                        mov     frqb,#0
+                        mov     phsa,#0
+                        mov     phsb,#0
+                        
+                        test    ina, spi_clkmask        wz    ' ? clock polarity == 1
+              if_z      jmp     #spi_entry00                  ' N - polarity = 0     
+                        mov     recv_cntl,recv_poscntl        ' Y search for positive edge
+                        mov     recv_cntl,recv_poscntl
+                        jmp     #spi_entry10                  '
+
+spi_entry00
+                        mov     recv_cntl,recv_negcntl
+                        mov     recv_cntl,recv_negcntl
+
+spi_entry10
+                        mov     ctra,recv_cntl
+                        mov     ctrb,recv_cntl
+                        or      ctra,spi_clk                  ' watch clock pin
+                        or      ctrb,spi_cs                   ' watch chip select
+
+                        mov     frqa,#1
+                        mov     frqb,#1
+                        mov     phsa,#0
+                        mov     phsb,#0
+
+                        or      ina, spi_misomask             ' signal that we're ready
+                        waitpeq 0, spi_mosimask               ' wait for master to drop init signal
+
+spi_reloop                               
+                        mov     phsb,#0
+spi_waitloop00            
+                        tjz     phsb,#spi_waitloop00          ' check for chip select
+spi_waitloop01
+                        tjz     phsa,#spi_waitloop01          ' wait for clock
+                        
+                                  
+i2c_entry
+                                   
+
+zero          long      0
+
+G0            long      0
+
+recv_poscntl  long      %01010_000_00000000_00000_000_00000
+recv_negcntl  long      %01110_000_00000000_00000_000_00000
+recv_cntl     long      0
+recv_spicntl  long      recv_poscntl | spi_mosi
+recv_i2ccntl  long      recv_poscntl | i2c_scl
+recv_mask     long      spi_mosimask | i2c_sclmask
+recv_errmask  long      spi_misomask | i2c_sdamask
+
+spi_clkmask   long      1 << spi_clk
+spi_mosimask  long      1 << spi_mosi
+spi_misomask  long      1 << spi_miso
+spi_csmask    long      1 << spi_cs
+
+spi_selmask   long      spi_clkmask | spi_csmask
+
+spi_
+
+i2c_sdamask   long      1 << i2c_sda
+i2c_sclmask   long      1 << i2c_scl
+spi_mode      long      0
+              FIT
