@@ -89,15 +89,12 @@ VAR
 
   byte FVM_buffer_index                       ' index of buffer filled
 
-  byte FVM_buffer_lock                        ' lock for data buffer
-
   byte FVM_heap                               ' just a reference for heap address
   
 PUB Start
 
   dira := $0000_FFFF | spi_misomask | i2c_sdamask       ' configure outputs for our purposes   
-  
-  FVM_buffer_lock := locknew
+
   cognew(@hires, @FVM_PWM_table)
   cognew(@fvm_entry, @FVM_PWM_table)
 
@@ -125,12 +122,9 @@ fvm_entry
                         mov     alloc_base, stack_base
                         add     alloc_base, #256              ' allocated size table
                         mov     bufin_ptr,  alloc_base      
-                        add     bufin_ptr,  #1                ' index filled pointer
-                        mov     buflock,    bufin_ptr
-                        add     buflock,    #1                ' point to lock number
-                        mov     heap_base,  buflock
+                        add     bufin_ptr,  #256              ' index filled pointer
+                        mov     heap_base,  bufin_ptr
                         add     heap_base,  #1                ' heap pointer
-                        rdbyte  buflock, buflock              ' read in lock number
 
 fvm_process
 ''
@@ -149,7 +143,7 @@ fvm_process
 fvm_eval_opcode
                         mov     G1, #fvm_opcode_table         ' load G1 with opcode table address
                         add     G1, opcode                    ' add opcode offset
-                        
+
                         jmp     G1                            ' jump to correct index into jump table
 fvm_opcode_table                                              ' HUB access is aligned on first instruction upon entering each table entry
                         jmp     #fvm_nop                
@@ -210,6 +204,7 @@ fvm_push
               if_z      jmp     #fvm_end_processing           ' return if length is zero
 
 fvm_push_00
+                        nop
                         rdbyte  G3, G0                        ' read next byte
                         sub     G1, #1                  wz    ' decrement counter
                         add     G0, #1                        ' increment data buffer pointer
@@ -229,7 +224,7 @@ fvm_pop
                         mov     G1, #2                        ' ensure we have a length byte present
                         call    #fvm_getdata                  ' ^
                         add     G0, #1                        ' go to length byte
-                        nop
+                        add     count, #2                     ' increment by 2
                         nop
                         nop
                         rdbyte  G0, G0                        ' read length into G0
@@ -291,7 +286,8 @@ fvm_delay_00
               if_a      jmp     #fvm_delay_00                 ' reloop
 fvm_delay_01
                         sub     stack_ind, #4                 ' subtract four bytes
-                        and     stack_ind, #$FF               ' cap at four bits                  
+                        and     stack_ind, #$FF               ' cap at four bits
+                        add     count, #1                
                         jmp     #fvm_end_processing                                       
                                                          
 fvm_inc
@@ -302,7 +298,7 @@ fvm_inc
 ''
                          rdbyte G0, G1                        ' load byte
                          add    G0, #1                        ' increment
-                         nop
+                         add    count,#1
                          wrbyte G0, G1                        ' store
 
                          jmp    #fvm_end_processing           ' exit
@@ -315,7 +311,7 @@ fvm_dec
 ''
                          rdbyte G0, G1                        ' load byte
                          sub    G0, #1                        ' increment
-                         nop
+                         add    count,#1
                          wrbyte G0, G1                        ' store
 
                          jmp    #fvm_end_processing           ' exit
@@ -333,7 +329,8 @@ fvm_add
                         add     G0, G1
                         and     stack_ind, #$FF
                         wrbyte  G0, stack_ptr
-                        
+
+                        add     count,#1
                         jmp     #fvm_end_processing
 fvm_sub
 ''
@@ -385,14 +382,8 @@ fvm_dup_00
 
                         
 fvm_if
-                        mov     G1, #4                        ' opcode+condition+following instruction (2 bytes for jump)
-                        call    #fvm_bufcheck
 fvm_jmp
-                        mov     G1, #2
-                        call    #fvm_bufcheck
 fvm_defmc
-                        mov     G1, #2
-                        call    #fvm_bufcheck
 
 fvm_calmc
 fvm_retmc
@@ -457,14 +448,13 @@ fvm_getdata             ' gets data from either buffer or macro area
                         or      macro, macro                  ' ? macro area
               if_nz     jmp     #fvm_getdata_01               ' Y - get data from macro
                                                               ' N - get data from buffer
-fvm_getdata_00
-                        lockset buflock                 wc    ' attempt lock set
-                        nop                                   ' align HUB access
-              if_c      jmp     #fvm_getdata_00               ' if previously set, then reloop
-
                         rdbyte  G0, bufin_ptr                 ' load filled index
 
-                        call    #fvm_bufcheck                 ' check for available data
+                        mov     G7, G0                        ' load G7 with filled index
+                        sub     G7, buf_proc                  ' subtract index to get length available
+                        cmp     G7, G1                  wz,wc ' ? length available >= length requested
+              if_b      jmp     #fvm_end_processing           ' N - wait for more data
+                        
                         mov     G0, buf_base                  ' load G0 with buffer pointer
                         add     G0, buf_proc                  ' go to next process index
                         jmp     #fvm_getdata_ret              ' exit
@@ -488,24 +478,7 @@ fvm_getdata_01
 fvm_getdata_ret   
               if_ae     ret                                   '    
                         jmp     #fvm_err_processing           ' N - end processing with error
-                                                                                                               
 
-fvm_bufcheck            ' upon entry: G0 should contain filled index
-                        '             buf_proc should contain processed index
-                        '             G1 should contain length of data to check for
-                        '
-                        ' upon exit:  returns to call if enough data present
-                        '             ends processing if there is not enough data
-                        '             a call to bufcheck shifts HUB access by 8 cycles
-                        '             meaning the call essentially counts as 8 cycles
-                        '
-                        mov     G3, G0                        ' load G7 with filled index
-                        sub     G3, buf_proc                  ' subtract index to get length available
-                        cmp     G3, G1                  wz,wc ' ? length available >= length requested
-              if_ae     jmp     #fvm_bufcheck_ret             ' Y - return to process
-                        jmp     #fvm_end_processing           ' N - wait for more data        
-fvm_bufcheck_ret
-                        ret
 
 fvm_err_processing                                                                 
 fvm_end_processing
@@ -517,14 +490,10 @@ fvm_end_processing
                         jmp     #fvm_process                  ' reloop   
                           
 fvm_end_processing_00
-                        lockclr buflock                       ' clear lock
                         add     buf_proc, count               ' if not in a macro, add count to buffer processed index
                         and     buf_proc, #$FF                ' cap at 8 bits
                         xor     count, count                  ' zero count
-                        
-                        mov     G0, cnt                       ' load clock counter
-                        add     G0, #14                       ' add and waitcnt is 10 clocks + 14 is 24 clocks = max time for someone else to grab lock
-              if_z      waitcnt G0, #0                        ' wait if we're dealing with a buffer
+
                         jmp     #fvm_process                  ' reloop
                         
                                                                                                                       
@@ -592,19 +561,6 @@ DAT PWMHandler
 ' signal takes whatever number of cycles it takes to accurately represent that
 ' the value in fractional form.
 
-' Ex.
-' If you write 50% to a pin, the smallest fractional representation is 1/2
-' meaning that every two cycles will be a complete duty cycle, with 1 on, and 
-' one off, resulting in a PWM frequency of ~75 kHz. If, however, you write
-' the value 52%, the smallest accurate representation is 26/50. This means
-' That the pin will be on for 26 cycles, and off for 25 cycles. But unlike the
-' time proportioning method, this method won't spend 26 steps straight high,
-' and then 25 steps low. It will instead distribute these steps evenly to form
-' baby-duty cycles, which closely represent 52%. For a perfect representation,
-' the duty cycle would be after 50 actual switches and have a frequency of 3 kHz.
-' It will appear to be 50%, as it is very close to that value, and after the extra
-' 2% has added up enough, it will lengthen the time spent high for one step,
-' changing the average time spent high to 52%.
 
                         org     0
 hires
@@ -733,7 +689,7 @@ CON
   i2c_sda  = 16                 ' I2C data pin
   i2c_scl  = 17                 ' I2C clock pin
 
-DAT SPIrecv
+DAT StartRecv
 
 recv_entry
                         mov     phsa,#0
@@ -761,68 +717,74 @@ recv_entry00
 spi_entry
                         or      dira, spi_misomask            ' configure pin(s) for output
 
-                        mov     frqa,#0
-                        mov     frqb,#0
-                        mov     phsa,#0
-                        mov     phsb,#0
-                        
-                        test    ina, spi_clkmask        wz    ' ? clock polarity == 1
-              if_z      jmp     #spi_entry00                  ' N - polarity = 0     
-                        mov     recv_cntl,recv_poscntl        ' Y search for positive edge
-                        mov     recv_cntl,recv_poscntl
-                        jmp     #spi_entry10                  '
-
-spi_entry00
-                        mov     recv_cntl,recv_negcntl
-                        mov     recv_cntl,recv_negcntl
-
-spi_entry10
-                        mov     ctra,recv_cntl
-                        mov     ctrb,recv_cntl
-                        or      ctra,spi_clk                  ' watch clock pin
-                        or      ctrb,spi_cs                   ' watch chip select
-
                         mov     frqa,#1
-                        mov     frqb,#1
+                        mov     frqb,#1                       '
                         mov     phsa,#0
                         mov     phsb,#0
+                        mov     ctra,spi_clkcntl              ' wait for pins to both be low
+                        movs    ctra,#spi_clk
+                        movd    ctra,#spi_cs                  ' monitor cs and clk pins
+                        mov     ctrb,spi_datcntl
+                        movs    ctrb,#spi_mosi
+                        mov     spi_count, #8
 
-                        or      ina, spi_misomask             ' signal that we're ready
-                        waitpeq 0, spi_mosimask               ' wait for master to drop init signal
+                        or      outa, spi_misomask
+                        waitpeq zero, spi_mosimask
 
-spi_reloop                               
-                        mov     phsb,#0
-spi_waitloop00            
-                        tjz     phsb,#spi_waitloop00          ' check for chip select
-spi_waitloop01
-                        tjz     phsa,#spi_waitloop01          ' wait for clock
+'' right now, capable speed is between 1.94Mb/s and 2.16Mb/s
+'' which is between 248KB/s and 276KB/s. I would cap it
+'' at 2Mb/s because going any faster requires the master
+'' to be perfectly in sync with Firecracker.
+''
+'' Those speeds is the max data rate range. This is a synchronous
+'' protocol, so going slower will work fine. Just don't go over
+'' 2Mb/s.
+''
+spi_waitloop
+                        tjz     phsa,#spi_waitloop            ' wait for both pins to be low
+spi_waitloop00
+                        shl     phsb,#1                       ' shift data in over
+                        mov     phsa,#0                       ' zero event
+                        waitpeq one, spi_clkmask              ' wait for raised clock
+                        djnz    spi_count, #spi_waitloop      ' reloop if we do not have 8 bits
+
+                        rdbyte  temp, buf_ind
+                        add     temp, buf_addr
+                        mov     spi_count, #8
+                        wrbyte  phsb, temp
+                        sub     temp, buf_addr
+                        add     temp, #1
+                        wrbyte  temp, buf_ind
+                        jmp     #spi_waitloop
                         
+                                    
                                   
 i2c_entry
                                    
 
 zero          long      0
+one           long      1
 
-G0            long      0
-
-recv_poscntl  long      %01010_000_00000000_00000_000_00000
-recv_negcntl  long      %01110_000_00000000_00000_000_00000
-recv_cntl     long      0
+recv_poscntl  long      %01010_000_00000000_000000_0_000000
 recv_spicntl  long      recv_poscntl | spi_mosi
 recv_i2ccntl  long      recv_poscntl | i2c_scl
 recv_mask     long      spi_mosimask | i2c_sclmask
 recv_errmask  long      spi_misomask | i2c_sdamask
 
+spi_clkcntl   long      %10001_000_00000000_000000_0_000000
+spi_datcntl   long      %01010_000_00000000_000000_0_000000
 spi_clkmask   long      1 << spi_clk
 spi_mosimask  long      1 << spi_mosi
 spi_misomask  long      1 << spi_miso
 spi_csmask    long      1 << spi_cs
 
-spi_selmask   long      spi_clkmask | spi_csmask
-
-spi_
-
 i2c_sdamask   long      1 << i2c_sda
 i2c_sclmask   long      1 << i2c_scl
 spi_mode      long      0
+
+temp          res       1
+buf_addr      res       1
+buf_ind       res       1
+spi_count     res       1
+
               FIT
