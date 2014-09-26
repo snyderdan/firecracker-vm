@@ -93,7 +93,9 @@ VAR
   
 PUB Start
 
-  dira := $0000_FFFF | spi_misomask | i2c_sdamask       ' configure outputs for our purposes   
+  dira := $0000_FFFF | spi_misomask | i2c_sdamask       ' configure outputs for our purposes
+
+  cognew(@recv_entry, @FVM_buffer)
 
   cognew(@hires, @FVM_PWM_table)
   cognew(@fvm_entry, @FVM_PWM_table)
@@ -106,7 +108,7 @@ DAT FireCrackerVM
 ''      Start the Firecracker VM 
 ''
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-
+                        org     0
 fvm_entry
                         '
                         ' load pointer from par and calculate addresses for variables
@@ -564,85 +566,84 @@ DAT PWMHandler
 
                         org     0
 hires
-                        mov     counter,#16                  ' Counter used to generate the table of pin HUBRAM addresses
                         mov     pinTableBase,par             ' Move in the HUBRAM address of the pin values table
+                        mov     counter,#16                  ' Counter used to generate the table of pin HUBRAM addresses
+                        mov     dutyReg,#pinAddress00
                         
 ' Initializes a table containing the HUBRAM address of every pin
 ' in order to avoid having to increment a reference address each
 ' time we have to access the table, thus increasing speed.
+
 setup
-                        mov     dutyReg,#pinAddresses        ' Move the base pin COGRAM address to the dutyReg (sorry for meaningless name, recycled register)
-                        add     dutyReg,#16                  ' Go to end of table
-                        sub     dutyReg,counter              ' Index backwards based on counter
-                        movd    tableSet,dutyReg             ' Move the register number into the destination for the next instruction
-tableSet
-                        mov     0000,pinTableBase            ' Store current HUBRAM address
-                        add     pinTableBase,#4              ' Increment to next 32-bit int
-                        djnz    counter,#setup               ' continue making table       
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
+                        movd    tableEntry, dutyReg
+                        add     dutyReg,#1 
+tableEntry                                   
+                        add     0000,pinTableBase 
+                        djnz    counter, #setup
+                        
 dutyStart               
-                        rdlong  dutyReg,pinAddresses         ' Read the value of the zero-th pin into the dutyReg
-                        add     dutyTable,dutyReg       wc   ' Add to the accumulator
+                        rdlong  dutyReg,pinAddress00         ' Read the value of the zero-th pin into the dutyReg
+                        add     dutyTable00,dutyReg       wc   ' Add to the accumulator
               if_c      or      buffer,pinMask00             ' If a carry was generated, set the pin to high
-                           
-                        rdlong  dutyReg,pinAddresses+1       ' repeat this process, each time going to the next pin, and next 
-                        add     dutyTable+1,dutyReg       wc
+              
+                        rdlong  dutyReg,pinAddress01         ' repeat this process, each time going to the next pin, and next 
+                        add     dutyTable01,dutyReg       wc
               if_c      or      buffer,pinMask01 
 
-                        rdlong  dutyReg,pinAddresses+2       ' This goes on 16 times. Once per pin.
-                        add     dutyTable+2,dutyReg       wc
+                        rdlong  dutyReg,pinAddress02         ' This goes on 16 times. Once per pin.
+                        add     dutyTable02,dutyReg       wc
               if_c      or      buffer,pinMask02 
 
-                        rdlong  dutyReg,pinAddresses+3
-                        add     dutyTable+3,dutyReg       wc
+                        rdlong  dutyReg,pinAddress03
+                        add     dutyTable03,dutyReg       wc
               if_c      or      buffer,pinMask03 
 
-                        rdlong  dutyReg,pinAddresses+4
-                        add     dutyTable+4,dutyReg       wc
+                        rdlong  dutyReg,pinAddress04
+                        add     dutyTable04,dutyReg       wc
               if_c      or      buffer,pinMask04 
 
-                        rdlong  dutyReg,pinAddresses+5
-                        add     dutyTable+5,dutyReg       wc
+                        rdlong  dutyReg,pinAddress05
+                        add     dutyTable05,dutyReg       wc
               if_c      or      buffer,pinMask05 
 
-                        rdlong  dutyReg,pinAddresses+6
-                        add     dutyTable+6,dutyReg       wc
+                        rdlong  dutyReg,pinAddress06
+                        add     dutyTable06,dutyReg       wc
               if_c      or      buffer,pinMask06 
 
-                        rdlong  dutyReg,pinAddresses+7
-                        add     dutyTable+7,dutyReg       wc
+                        rdlong  dutyReg,pinAddress07
+                        add     dutyTable07,dutyReg       wc
               if_c      or      buffer,pinMask07 
 
-                        rdlong  dutyReg,pinAddresses+8
-                        add     dutyTable+8,dutyReg       wc
+                        rdlong  dutyReg,pinAddress08
+                        add     dutyTable08,dutyReg       wc
               if_c      or      buffer,pinMask08 
 
-                        rdlong  dutyReg,pinAddresses+9
-                        add     dutyTable+9,dutyReg       wc
+                        rdlong  dutyReg,pinAddress09
+                        add     dutyTable09,dutyReg       wc
               if_c      or      buffer,pinMask09 
 
-                        rdlong  dutyReg,pinAddresses+10
-                        add     dutyTable+10,dutyReg       wc
+                        rdlong  dutyReg,pinAddress0A
+                        add     dutyTable0A,dutyReg       wc
               if_c      or      buffer,pinMask0A 
 
-                        rdlong  dutyReg,pinAddresses+11
-                        add     dutyTable+11,dutyReg       wc
+                        rdlong  dutyReg,pinAddress0B
+                        add     dutyTable0B,dutyReg       wc
               if_c      or      buffer,pinMask0B 
 
-                        rdlong  dutyReg,pinAddresses+12
-                        add     dutyTable+12,dutyReg       wc
+                        rdlong  dutyReg,pinAddress0C
+                        add     dutyTable0C,dutyReg       wc
               if_c      or      buffer,pinMask0C 
 
-                        rdlong  dutyReg,pinAddresses+13
-                        add     dutyTable+13,dutyReg       wc
+                        rdlong  dutyReg,pinAddress0D
+                        add     dutyTable0D,dutyReg       wc
               if_c      or      buffer,pinMask0D 
 
-                        rdlong  dutyReg,pinAddresses+14
-                        add     dutyTable+14,dutyReg       wc
+                        rdlong  dutyReg,pinAddress0E
+                        add     dutyTable0E,dutyReg       wc
               if_c      or      buffer,pinMask0E 
 
-                        rdlong  dutyReg,pinAddresses+15
-                        add     dutyTable+15,dutyReg       wc
+                        rdlong  dutyReg,pinAddress0F
+                        add     dutyTable0F,dutyReg       wc
               if_c      or      buffer,pinMask0F 
 
                         mov     dira,buffer                     ' Set those pins to output                       
@@ -668,12 +669,44 @@ pinMask0D     long      %0000_0000_0000_0000_0010_0000_0000_0000
 pinMask0E     long      %0000_0000_0000_0000_0100_0000_0000_0000
 pinMask0F     long      %0000_0000_0000_0000_1000_0000_0000_0000
 
+pinAddress00     long      0
+pinAddress01     long      4
+pinAddress02     long      8
+pinAddress03     long      12
+pinAddress04     long      16
+pinAddress05     long      20
+pinAddress06     long      24
+pinAddress07     long      28
+pinAddress08     long      32
+pinAddress09     long      36
+pinAddress0A     long      40
+pinAddress0B     long      44
+pinAddress0C     long      48
+pinAddress0D     long      52
+pinAddress0E     long      56
+pinAddress0F     long      60
+
+dutyTable00     long      0
+dutyTable01     long      0
+dutyTable02     long      0
+dutyTable03     long      0
+dutyTable04     long      0
+dutyTable05     long      0
+dutyTable06     long      0
+dutyTable07     long      0
+dutyTable08     long      0
+dutyTable09     long      0
+dutyTable0A     long      0
+dutyTable0B     long      0
+dutyTable0C     long      0
+dutyTable0D     long      0
+dutyTable0E     long      0
+dutyTable0F     long      0
+
 dutyReg       res       1    ' Register that duty cycle gets read into
 counter       res       1    ' Counter for generating the address table
 pinTableBase  res       1    ' HUBRAM address of pin addresses
-buffer        res       1    ' Bitmask buffer
-pinAddresses  res       16   ' Table of HUBRAM addresses
-dutyTable     res       16   ' Table of accumulators for each pins duty cycle     
+buffer        res       1    ' Bitmask buffer    
                         FIT
 
 CON
@@ -691,7 +724,13 @@ CON
 
 DAT StartRecv
 
+                        org     0
 recv_entry
+                        mov     buf_addr,par
+                        mov     buf_ind, buf_addr
+                        add     buf_ind, #256
+                        add     buf_ind, #256
+                        add     buf_ind, #256
                         mov     phsa,#0
                         mov     phsb,#0
                         mov     frqa,#1
@@ -731,10 +770,14 @@ spi_entry
                         or      outa, spi_misomask
                         waitpeq zero, spi_mosimask
 
+''
+'' Maximum data rate of 2Mb/s (276KB/s)
+'' 
 '' right now, capable speed is between 1.94Mb/s and 2.16Mb/s
 '' which is between 248KB/s and 276KB/s. I would cap it
-'' at 2Mb/s because going any faster requires the master
-'' to be perfectly in sync with Firecracker.
+'' at 2Mb/s because going any faster requires sharp timing
+'' between the master and when this COG has HUB access
+'' which is a completely unreasonable thing to account for.
 ''
 '' Those speeds is the max data rate range. This is a synchronous
 '' protocol, so going slower will work fine. Just don't go over
