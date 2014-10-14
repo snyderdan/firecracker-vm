@@ -6,9 +6,11 @@ CFLAGS=-Wall -Wextra -Wformat=2 -Wswitch-default -Wcast-align -Wpointer-arith \
     -lm -pedantic -O0 -ggdb3 -pg --coverage -std=gnu11
 all: firecracker-tester
 
-firecracker-tester: firecracker-tester.c firecracker-vm.o
+firecracker-tester: firecracker-tester.c firecracker-vm.o bottlerocket-vm.o
 
 firecracker-vm.o: firecracker-vm.c firecracker-vm.h
+
+bottlerocket-vm.o: bottlerocket-vm.c bottlerocket-vm.h
 
 run: firecracker-tester
 	./firecracker-tester

@@ -43,5 +43,6 @@ firecracker-tester
 *.gcno
 *.gcda
 *.sublime-workspace
+*.sublime-project
 breaks
 gmon.out

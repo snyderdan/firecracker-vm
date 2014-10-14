@@ -21,6 +21,7 @@
 typedef struct fvm_output_s
 {
 	uint8_t pwm_val;
+	uint8_t locked;
 } fvm_output_t;
 
 
