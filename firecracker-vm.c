@@ -68,7 +68,7 @@ int8_t fvm_pop(fvm_t *fvm, uint8_t nbytes){
 }
 
 int8_t fvm_write(fvm_t *fvm, uint8_t output_num, uint8_t duty_cycle){
-	if(output_num > fvm->num_outputs - 1){
+	if(output_num > fvm->num_outputs - 1 || fvm -> outputs[output_num].locked){
 		return -1;
 	}
 	fvm -> outputs[output_num].pwm_val = duty_cycle;
