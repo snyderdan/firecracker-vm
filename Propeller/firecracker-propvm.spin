@@ -143,10 +143,8 @@ VAR
   byte FVM_signal                             ' signal line
   
   byte FVM_macro_space[FVM_DEFAULT_WA_SIZE]   ' memory allocated for macro(s) being executed
-
-  byte FVM_heap                               ' just a reference for heap address (where macros are saved in EEPROM)
   
-PUB Start
+PUB Start | n
 
   dira := $0000_FFFF | spi_misomask | i2c_sdamask       ' configure outputs for our purposes
 
@@ -161,6 +159,11 @@ PUB Start
   heap_base  := @FVM_heap
   
   cognew(@fvm_entry, 0)
+  
+  repeat n from 0 to 52 step 4
+    long[@fvm_getdata+n] := long[@fvm_macro_patch+n]
+
+  cognew(@fvm_entry, 0)    
 
 PUB MacroManager | address, s, len1, len2, end
 
@@ -556,10 +559,7 @@ fvm_getdata             ' gets data from either buffer or macro area
 ''    All G2-G4 will be FUBAR
 ''
 ''    HUB access is available immidiately upon return from FVM_getdata
-''   
-
-                        or      macro, macro                  ' ? macro area
-              if_nz     jmp     #fvm_getdata_01               ' Y - get data from macro
+''
                                                               ' N - get data from buffer
                         rdbyte  G0, bufin_ptr                 ' load filled index
 
@@ -571,23 +571,13 @@ fvm_getdata             ' gets data from either buffer or macro area
                         mov     G0, buf_base                  ' load G0 with buffer pointer
                         add     G0, buf_proc                  ' go to next process index
                         jmp     #fvm_getdata_ret              ' exit
+                        nop
+                        nop
+                        nop
+                        nop
+                        nop
+                        nop
 
-fvm_getdata_01
-                        mov     G2, macno                     ' move in macro number
-                        add     G2, macro_base                ' add base address of table
-                        rdbyte  G3, G2                        ' read in first byte
-                        shl     G3, #8                        ' free lower 8 bits
-                        add     G2, #1                        ' point to next byte
-                        rdbyte  G4, G2                        ' get next byte
-                        mov     G2, macno                     ' load macro number
-                        add     G2, alloc_base                ' point to length of macro
-                        rdbyte  G0, G2                        ' read length into G0
-                        or      G4, G3                        ' form full word of macro address in G4 
-                        add     G1, macro                     ' get end of data in G1
-                        
-                        add     G4, G0                        ' get end of macro in G4
-                        cmp     G4, G3                  wc,wz ' ? macro end >= data end
-              if_ae     mov     G0, macro                     ' Y - return macro address
 fvm_getdata_ret   
               if_ae     ret                                   '    
                         jmp     #fvm_err_processing           ' N - end processing with error
@@ -655,6 +645,26 @@ macno         res       1       ' macro number being executed
 
                         FIT
 
+DAT FVMMacroPatch
+
+fvm_macro_patch
+                        mov     G2, macno                     ' move in macro number
+                        add     G2, macro_base                ' add base address of table
+                        rdbyte  G3, G2                        ' read in first byte
+                        shl     G3, #8                        ' free lower 8 bits
+                        add     G2, #1                        ' point to next byte
+                        rdbyte  G4, G2                        ' get next byte
+                        mov     G2, macno                     ' load macro number
+                        add     G2, alloc_base                ' point to length of macro
+                        rdbyte  G0, G2                        ' read length into G0
+                        or      G4, G3                        ' form full word of macro address in G4 
+                        add     G1, macro                     ' get end of data in G1
+                        
+                        add     G4, G0                        ' get end of macro in G4
+                        cmp     G4, G3                  wc,wz ' ? macro end >= data end
+              if_ae     mov     G0, macro                     ' Y - return macro address
+
+              
 DAT PWMHandler
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
