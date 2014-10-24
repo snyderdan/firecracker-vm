@@ -37,13 +37,50 @@
 ''      FVM will not respond on the MISO line if this is the case. Response time should be
 ''      within 5us.
 ''
+''
+'' Firecracker structure -
+''      I'm seeing this playing out that we use roughly 16K of code and variable space.
+''      Of course 8K of that is just the macro work area. The remaining 16K in RAM will
+''      be used for Bottle Rocket LED arrays. There will be ~24K available in EEPROM
+''      for macro storage with 8K being loaded at once.
+''
+''    - One COG is dedicated to executing just macros. It will execute NOPs until a
+''      macro is executed by a second COG that is interpreting the input stream.
+''    - A third COG will be used to recieve this input stream from SPI/I2C.
+''    - A fourth COG will be responsible for the PWM drivers
+''    - A fifth COG will act as the macro/memory manager, loading and storing macros
+''      to and from EEPROM as requested. Right now I am implementing this in
+''      SPIN because the EEPROM interface is very convinient and written in SPIN.
+''      Any macro called will be verified and loaded into RAM if it is not there.
+''      It will be mightly slow in SPIN, so I added a 'preload macro' to FVM so that
+''      a user/compiler can avoid the loading overhead when they call the macro for
+''      time sensitive situations. I'll work on implementing assembly later.
+''    - A sixth COG will run Bottle Rocket and be responsible for updating addressable
+''      strips as the memory array is updated. Communication between Bottle Rocket and
+''      FVM still needs to be worked out.
+''
+''    - I also added opcodes for 'wait signal' and 'post signal' so the user can communicate
+''      with an already running macro. I think WAITS 0 will be wait for any non-zero signal.
+''      Also, POSTS FF will be a termination signal. WAITS FF is just waiting for termination
+''      which is essentially a delayed RETMC and POSTS 0 is just posting no signal, so it is
+''      essentially a NOP. All other signals are free to use. 
+''
+'' What needs to be done -
+''    - Separate input and macro interpreter versions of FVM
+''    - Create a test with another board to test SPI
+''    - Write I2C com
+''    - Finish writing the MM
+''    - Fill in missing opcodes (pretty much everything macro related)
+''    - everything involving Bottle Rocket
+''       
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
 CON
 
+  FVM_DEFAULT_WA_SIZE     = 8192   ' macro work area                        
+  FVM_DEFAULT_NUM_MACROS  = 256  
   FVM_DEFAULT_STACK_SIZE  = 256
   FVM_DEFAULT_BUFFER_SIZE = 256
-  FVM_DEFAULT_NUM_MACROS  = 256
   FVM_DEFAULT_NUM_OUTPUTS = 16
 
   FVM_OUTPUT_MASK = $FFFF0000
@@ -67,29 +104,47 @@ CON
   FVM_IF_OPCODE    = 16
   FVM_JUMP_OPCODE  = 17         ' jump
   FVM_JMPR_OPCODE  = 18         ' jump relative
-  FVM_DEFMC_OPCODE = 19
-  FVM_CALMC_OPCODE = 20
-  FVM_RETMC_OPCODE = 21
-  FVM_DLAYM_OPCODE = 22
-  FVM_SAVMC_OPCODE = 23
-  FVM_DELMC_OPCODE = 24
+  FVM_DEFMC_OPCODE = 19         ' define macro
+  FVM_CALMC_OPCODE = 20         ' call macro
+  FVM_RETMC_OPCODE = 21         ' return from macro
+  FVM_DLAYM_OPCODE = 22         ' delay microseconds
+  FVM_SAVMC_OPCODE = 23         ' save macro
+  FVM_DELMC_OPCODE = 24         ' delete macro
+  FVM_LDMC_OPCODE  = 25         ' preload macro
+  FVM_WAITS_OPCODE = 26         ' wait for signal
+  FVM_POSTS_OPCODE = 27         ' post signal 
 
-                                     
+  MM_LOAD_MACRO    = 1
+  MM_SAVE_MACRO    = 2
+  MM_DEL_MACRO     = 4
+
+
+
+OBJ
+
+  eeprom  :  "Propeller Eeprom"
+                                    
 VAR
 
-  long FVM_PWM_table[FVM_DEFAULT_NUM_OUTPUTS] ' PWM outputs          
+  long FVM_PWM_table[FVM_DEFAULT_NUM_OUTPUTS] ' PWM outputs
 
-  word FVM_macros[FVM_DEFAULT_NUM_MACROS]     ' macro addresses (words allocated first)
+  long FVM_macros[FVM_DEFAULT_NUM_MACROS]     ' macro table (first two bytes is EEPROM address and last two bytes are RAM address)
 
   byte FVM_buffer[FVM_DEFAULT_BUFFER_SIZE]    ' input buffer
 
   byte FVM_data_stack[FVM_DEFAULT_STACK_SIZE] ' Data stack that operations are performed on
 
-  byte FVM_allocsz[FVM_DEFAULT_NUM_MACROS]    ' size of each macro
-
   byte FVM_buffer_index                       ' index of buffer filled
 
-  byte FVM_heap                               ' just a reference for heap address
+  byte FVM_manager_request                    ' indicates request for macro manager
+  
+  byte FVM_manager_request_addr               ' the macro number requested for operation
+
+  byte FVM_signal                             ' signal line
+  
+  byte FVM_macro_space[FVM_DEFAULT_WA_SIZE]   ' memory allocated for macro(s) being executed
+
+  byte FVM_heap                               ' just a reference for heap address (where macros are saved in EEPROM)
   
 PUB Start
 
@@ -98,7 +153,68 @@ PUB Start
   cognew(@recv_entry, @FVM_buffer)
 
   cognew(@hires, @FVM_PWM_table)
-  cognew(@fvm_entry, @FVM_PWM_table)
+
+  pwm_base   := @FVM_PWM_table
+  buf_base   := @FVM_buffer
+  stack_base := @FVM_data_stack
+  bufin_ptr  := @FVM_buffer_index
+  heap_base  := @FVM_heap
+  
+  cognew(@fvm_entry, 0)
+
+PUB MacroManager | address, s, len1, len2, end
+
+  repeat while (true)
+  
+    repeat while (!FVM_manager_request)    ' wait for a macro request
+
+    if (FVM_manager_request == MM_LOAD_MACRO)           ' request to load macro
+    
+      address := FVM_macros[FVM_manager_request_addr]   ' find entry
+       
+      if (address & $FFFF)                              ' if it has a valid address in RAM then don't worry
+        FVM_manager_request := 0                        ' notify                        
+        next
+
+      if (!address)
+        FVM_manager_request := -1                       ' notify that macro is undefined
+        waitcnt(8000 + cnt)                             ' wait
+        FVM_manager_request := 0                        ' clear error
+        next
+
+      address >>=  16                                   ' get EEPROM address
+
+      eeprom.ToRam(@len1, @len1+1,address)              ' read descriptor (alloc bit and 15-bit length)
+
+      if (!(len1 & $10000))                             ' ensure it's allocated in EEPROM
+        FVM_manager_request := -1
+        waitcnt(8000 + cnt)
+        FVM_manager_request := 0
+        next
+
+      len1 &= $FFFF                                     ' extract length
+
+      s    := @FVM_macros                               ' selected RAM address
+
+      end  := @FVM_macros + FVM_DEFAULT_WA_SIZE         ' end address
+
+      len2 := word[s]                                   ' length of RAM block
+
+      repeat while (len2 and (s < end))                 ' search for empty RAM block 
+        s += len2 + 1
+        len2 := word[s] 
+
+      if (!len2 and ((end - s) => len1))
+        eeprom.ToRam(s, s+len1, address)
+        FVM_manager_request := 0
+        next
+      
+    elseif (FVM_manager_request == MM_SAVE_MACRO)
+    elseif (FVM_manager_request == MM_DEL_MACRO)
+
+    else
+      next
+           
 
 DAT FireCrackerVM
 
@@ -110,23 +226,6 @@ DAT FireCrackerVM
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
                         org     0
 fvm_entry
-                        '
-                        ' load pointer from par and calculate addresses for variables
-                        '
-
-                        mov     pwm_base,   par               ' PWM table
-                        mov     macro_base, pwm_base               
-                        add     macro_base, #64               ' macro table                                            
-                        mov     buf_base,   macro_base
-                        add     buf_base,   num512            ' buffer pointer
-                        mov     stack_base, buf_base
-                        add     stack_base, #256              ' stack pointer
-                        mov     alloc_base, stack_base
-                        add     alloc_base, #256              ' allocated size table
-                        mov     bufin_ptr,  alloc_base      
-                        add     bufin_ptr,  #256              ' index filled pointer
-                        mov     heap_base,  bufin_ptr
-                        add     heap_base,  #1                ' heap pointer
 
 fvm_process
 ''
@@ -168,7 +267,12 @@ fvm_opcode_table                                              ' HUB access is al
                         jmp     #fvm_jmp
                         jmp     #fvm_defmc
                         jmp     #fvm_calmc
-                        jmp     #fvm_dlaym                
+                        jmp     #fvm_dlaym
+                        jmp     #fvm_savmc
+                        jmp     #fvm_delmc
+                        jmp     #fvm_ldmc
+                        jmp     #fvm_waits
+                        jmp     #fvm_posts              
 
 fvm_nop
 ''
@@ -390,6 +494,7 @@ fvm_defmc
 fvm_calmc
 fvm_retmc
 fvm_dlaym
+
 ''
 '' FVM_DLAYM macro takes an unsigned 32-bit integer in micro-seconds.
 '' minimum wait time of 1.2us for 0 and 1us specified. All other values
@@ -434,7 +539,13 @@ fvm_dlaym_02
 fvm_dlaym_03
                         mov     G3,14
               if_ae     jmp     #fvm_dlaym_02 
-                        jmp     #fvm_end_processing           ' leave    
+                        jmp     #fvm_end_processing           ' leave
+
+fvm_savmc
+fvm_delmc
+fvm_ldmc
+fvm_waits
+fvm_posts   
 
 
 fvm_getdata             ' gets data from either buffer or macro area
@@ -512,6 +623,15 @@ num512        long      512
 ' 
 delay_ctr     long      %0_00100_000_00000000_000000_000_010000   ' use pin 16 for NCO, reads into pin 17
 
+pwm_base      long      1       ' PWM table   
+macro_base    long      1       ' start of macro address table
+buf_base      long      1       ' buffer ptr
+stack_base    long      1       ' start of data stack 
+alloc_base    long      1       ' start of allocated size table
+bufin_ptr     long      1       ' buffer index pointer
+buflock       long      1       ' buffer lock 
+heap_base     long      1       ' base pointer to heap
+
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 ' general registers
 G0            res       1
@@ -532,15 +652,6 @@ stack_ind     res       1       ' current index in stack
 stack_ptr     res       1       ' calculated at the start of each process
 macro         res       1       ' macro pointer
 macno         res       1       ' macro number being executed
-
-pwm_base      res       1       ' PWM table   
-macro_base    res       1       ' start of macro address table
-buf_base      res       1       ' buffer ptr
-stack_base    res       1       ' start of data stack 
-alloc_base    res       1       ' start of allocated size table
-bufin_ptr     res       1       ' buffer index pointer
-buflock       res       1       ' buffer lock 
-heap_base     res       1       ' base pointer to heap
 
                         FIT
 
@@ -726,6 +837,8 @@ DAT StartRecv
 
                         org     0
 recv_entry
+                        or      dira,#(1<<0)
+                        or      outa,#(1<<0)
                         mov     buf_addr,par
                         mov     buf_ind, buf_addr
                         add     buf_ind, #256
@@ -737,11 +850,13 @@ recv_entry
                         mov     frqb,#1
                         mov     ctra,recv_spicntl
                         mov     ctrb,recv_i2ccntl
+                        or      dira,spi_clkmask
+                        or      outa,spi_clkmask
 recv_entry00
-                        or      phsa, phsb              wz    ' ? either pin gets a positive edge                     
+                        or      phsa, phsb              wz,nr ' ? either pin gets a positive edge                     
               if_z      jmp     #recv_entry00                 ' N - reloop if neither pin set
 
-
+                        andn    outa,spi_clkmask
                         cmp     ina, spi_mosimask       wz    ' ? SPI set
               if_z      jmp     #spi_entry                    ' Y - go to SPI
 
@@ -771,7 +886,7 @@ spi_entry
                         waitpeq zero, spi_mosimask
 
 ''
-'' Maximum data rate of 2Mb/s (276KB/s)
+'' Maximum data rate of 2Mb/s (256KB/s)
 '' 
 '' right now, capable speed is between 1.94Mb/s and 2.16Mb/s
 '' which is between 248KB/s and 276KB/s. I would cap it
@@ -808,14 +923,13 @@ i2c_entry
 zero          long      0
 one           long      1
 
-recv_poscntl  long      %01010_000_00000000_000000_0_000000
-recv_spicntl  long      recv_poscntl | spi_mosi
-recv_i2ccntl  long      recv_poscntl | i2c_scl
+recv_spicntl  long      %01010_000_00000000_000000_000_000000 | spi_mosi
+recv_i2ccntl  long      %01010_000_00000000_000000_000_000000 | i2c_scl
 recv_mask     long      spi_mosimask | i2c_sclmask
 recv_errmask  long      spi_misomask | i2c_sdamask
 
-spi_clkcntl   long      %10001_000_00000000_000000_0_000000
-spi_datcntl   long      %01010_000_00000000_000000_0_000000
+spi_clkcntl   long      %10001_000_00000000_000000_000_000000
+spi_datcntl   long      %01010_000_00000000_000000_000_000000
 spi_clkmask   long      1 << spi_clk
 spi_mosimask  long      1 << spi_mosi
 spi_misomask  long      1 << spi_miso
