@@ -7,12 +7,13 @@
 #include <stdlib.h>
 #include <time.h>
 
-int8_t brkt_init(brkt_t *brkt, uint8_t num_timings){
+int8_t brkt_init(brkt_t *brkt, fvm_output_t *outputs, uint8_t num_timings){
 	brkt -> outputs_owned_mask = 0;
+	brkt -> outputs = outputs;
 	brkt -> timings = calloc(num_timings, sizeof(brkt_timing_t));
 	// Add default timings
-	brkt_new_timing(brkt, 0, WS2812_TIMING);
-	brkt_new_timing(brkt, 1, WS2811_TIMING);
+	brkt_new_timing(brkt, 0, &WS2812_TIMING);
+	brkt_new_timing(brkt, 1, &WS2811_TIMING);
 	return 0;
 }
 
@@ -25,7 +26,8 @@ int8_t brkt_free(brkt_t *brkt){
  * It's the user's responsibility not to overwrite existing timings
  */
 int8_t brkt_new_timing(brkt_t *brkt, uint8_t index, brkt_timing_t *timing){
-	return memmove(brkt -> timings[index], timing, sizeof(brkt_timing_t));
+	memmove(brkt -> timings+index, timing, sizeof(brkt_timing_t));
+	return 0;
 }
 
 int8_t brkt_send(brkt_t *brkt, uint8_t output_num, uint8_t timing_num, uint8_t data_len, uint8_t *data){
