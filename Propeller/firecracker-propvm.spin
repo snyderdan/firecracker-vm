@@ -716,133 +716,6 @@ macno         res       1       ' length of macro
 
                         FIT
 
-
-CON
-''
-'' FireCracker SPI reciever -
-''      
-
-
-  spi_clk  = 18                 ' clock pin             
-  spi_mosi = 19                 ' master out / slave in
-  spi_miso = 20                 ' master in / slave out
-  spi_cs   = 21                 ' chip select
-  i2c_sda  = 16                 ' I2C data pin
-  i2c_scl  = 17                 ' I2C clock pin
-
-DAT StartRecv
-
-                        org     0
-recv_entry
-                        or      dira,#(1<<0)
-                        or      outa,#(1<<0)
-                        mov     buf_addr,par
-                        mov     buf_ind, buf_addr
-                        add     buf_ind, #256
-                        add     buf_ind, #256
-                        add     buf_ind, #256
-                        mov     phsa,#0
-                        mov     phsb,#0
-                        mov     frqa,#1
-                        mov     frqb,#1
-                        mov     ctra,recv_spicntl
-                        mov     ctrb,recv_i2ccntl
-                        or      dira,spi_clkmask
-                        or      outa,spi_clkmask
-recv_entry00
-                        or      phsa, phsb              wz,nr ' ? either pin gets a positive edge                     
-              if_z      jmp     #recv_entry00                 ' N - reloop if neither pin set
-
-                        andn    outa,spi_clkmask
-                        cmp     ina, spi_mosimask       wz    ' ? SPI set
-              if_z      jmp     #spi_entry                    ' Y - go to SPI
-
-                        cmp     ina, i2c_sclmask              ' ? I2C set
-              if_z      jmp     #i2c_entry                    ' Y - go to I2C
-
-                        mov     dira, recv_errmask            ' move in error mask
-                        mov     outa, recv_errmask            ' drive all lines high
-                        cogid   zero
-                        cogstop zero                          ' kill service
-
-spi_entry
-                        or      dira, spi_misomask            ' configure pin(s) for output
-
-                        mov     frqa,#1
-                        mov     frqb,#1                       '
-                        mov     phsa,#0
-                        mov     phsb,#0
-                        mov     ctra,spi_clkcntl              ' wait for pins to both be low
-                        movs    ctra,#spi_clk
-                        movd    ctra,#spi_cs                  ' monitor cs and clk pins
-                        mov     ctrb,spi_datcntl
-                        movs    ctrb,#spi_mosi
-                        mov     spi_count, #8
-
-                        or      outa, spi_misomask
-                        waitpeq zero, spi_mosimask
-
-''
-'' Maximum data rate of 2Mb/s (256KB/s)
-'' 
-'' right now, capable speed is between 1.94Mb/s and 2.16Mb/s
-'' which is between 248KB/s and 276KB/s. I would cap it
-'' at 2Mb/s because going any faster requires sharp timing
-'' between the master and when this COG has HUB access
-'' which is a completely unreasonable thing to account for.
-''
-'' Those speeds is the max data rate range. This is a synchronous
-'' protocol, so going slower will work fine. Just don't go over
-'' 2Mb/s.
-''
-spi_waitloop
-                        tjz     phsa,#spi_waitloop            ' wait for both pins to be low
-spi_waitloop00
-                        shl     phsb,#1                       ' shift data in over
-                        mov     phsa,#0                       ' zero event
-                        waitpeq one, spi_clkmask              ' wait for raised clock
-                        djnz    spi_count, #spi_waitloop      ' reloop if we do not have 8 bits
-
-                        rdbyte  temp, buf_ind
-                        add     temp, buf_addr
-                        mov     spi_count, #8
-                        wrbyte  phsb, temp
-                        sub     temp, buf_addr
-                        add     temp, #1
-                        wrbyte  temp, buf_ind
-                        jmp     #spi_waitloop
-                        
-                                    
-                                  
-i2c_entry
-                                   
-
-zero          long      0
-one           long      1
-
-recv_spicntl  long      %01010_000_00000000_000000_000_000000 | spi_mosi
-recv_i2ccntl  long      %01010_000_00000000_000000_000_000000 | i2c_scl
-recv_mask     long      spi_mosimask | i2c_sclmask
-recv_errmask  long      spi_misomask | i2c_sdamask
-
-spi_clkcntl   long      %10001_000_00000000_000000_000_000000
-spi_datcntl   long      %01010_000_00000000_000000_000_000000
-spi_clkmask   long      1 << spi_clk
-spi_mosimask  long      1 << spi_mosi
-spi_misomask  long      1 << spi_miso
-spi_csmask    long      1 << spi_cs
-
-i2c_sdamask   long      1 << i2c_sda
-i2c_sclmask   long      1 << i2c_scl
-spi_mode      long      0
-
-temp          res       1
-buf_addr      res       1
-buf_ind       res       1
-spi_count     res       1
-
-              FIT
-
 DAT PWMHandler
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
@@ -1008,40 +881,7 @@ pinTableBase  res       1    ' HUBRAM address of pin addresses
 buffer        res       1    ' Bitmask buffer    
                         FIT
 
-CON
-''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-'' Bottlerocket serial addressable LED driver
-'' 
-'' Bottlerocket maintains four 512-byte buffers of data used to feed 
-'' one pin each. It runs on its own cog and consumes write requests 
-'' consisting of a buffer number and a start and end index in that 
-'' buffer.
-'' 
-'' The buffers can be modified at any time, but have a flag set 
-'' indicating when data is in-flight. Editing buffers during data sends 
-'' could have unintended consequences.
-''
-'' OR
-'' 
-'' The buffers are locked while data is in flight, and will reject 
-'' updates made until data write is completed. 
-''
-''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-
-BRKT_OUTPUT_MASK $0F000000
-
-BRKT_DEFAULT_BUF_LEN 512
-BRKT_DEFAULT_BUF_NUM 4
-
-BRKT_REQUEST_PIN_MASK  $E0000000
-BRKT_REQUEST_START_INDEX_MASK $1FF00000
-BRKT_REQUEST_END_INDEX_MASK $000FF800
-
-DAT Bottlerocket 
-						org 	0
-''do stuff
-
-						
+	
 CON
 ''
 '' FireCracker SPI reciever -
@@ -1167,3 +1007,32 @@ buf_ind       res       1
 spi_count     res       1
 
               FIT
+	      
+CON
+''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+'' Bottlerocket serial addressable LED driver
+'' 
+'' Bottlerocket maintains four 512-byte buffers of data used to feed 
+'' one pin each. It runs on its own cog and consumes write requests 
+'' consisting of a buffer number and a start and end index in that 
+'' buffer.
+'' 
+'' The buffers are locked while data is in flight, and will reject 
+'' updates made until data write is completed. 
+''
+''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+
+BRKT_OUTPUT_MASK = $0F000000
+
+BRKT_DEFAULT_BUF_LEN = 512
+BRKT_DEFAULT_BUF_NUM  = 4
+
+BRKT_REQUEST_PIN_MASK = $E0000000
+BRKT_REQUEST_START_INDEX_MASK = $1FF00000
+BRKT_REQUEST_END_INDEX_MASK = $000FF800
+
+DAT Bottlerocket 
+	    org 	0
+''do stuff
+	    FIT
+					
