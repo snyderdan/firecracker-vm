@@ -1115,40 +1115,7 @@ pinTableBase  long      0    ' HUBRAM address of pin addresses
 buffer        long      0    ' Bitmask buffer    
                         FIT
 
-CON
-''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-'' Bottlerocket serial addressable LED driver
-'' 
-'' Bottlerocket maintains four 512-byte buffers of data used to feed 
-'' one pin each. It runs on its own cog and consumes write requests 
-'' consisting of a buffer number and a start and end index in that 
-'' buffer.
-'' 
-'' The buffers can be modified at any time, but have a flag set 
-'' indicating when data is in-flight. Editing buffers during data sends 
-'' could have unintended consequences.
-''
-'' OR
-'' 
-'' The buffers are locked while data is in flight, and will reject 
-'' updates made until data write is completed. 
-''
-''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-
-BRKT_OUTPUT_MASK $0F000000
-
-BRKT_DEFAULT_BUF_LEN 512
-BRKT_DEFAULT_BUF_NUM 4
-
-BRKT_REQUEST_PIN_MASK  $E0000000
-BRKT_REQUEST_START_INDEX_MASK $1FF00000
-BRKT_REQUEST_END_INDEX_MASK $000FF800
-
-DAT Bottlerocket 
-						org 	0
-''do stuff
-
-						
+	
 CON
 ''
 '' FireCracker SPI reciever -
@@ -1274,3 +1241,32 @@ buf_ind       res       1
 spi_count     res       1
 
               FIT
+	      
+CON
+''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+'' Bottlerocket serial addressable LED driver
+'' 
+'' Bottlerocket maintains four 512-byte buffers of data used to feed 
+'' one pin each. It runs on its own cog and consumes write requests 
+'' consisting of a buffer number and a start and end index in that 
+'' buffer.
+'' 
+'' The buffers are locked while data is in flight, and will reject 
+'' updates made until data write is completed. 
+''
+''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+
+BRKT_OUTPUT_MASK = $0F000000
+
+BRKT_DEFAULT_BUF_LEN = 512
+BRKT_DEFAULT_BUF_NUM  = 4
+
+BRKT_REQUEST_PIN_MASK = $E0000000
+BRKT_REQUEST_START_INDEX_MASK = $1FF00000
+BRKT_REQUEST_END_INDEX_MASK = $000FF800
+
+DAT Bottlerocket 
+	    org 	0
+''do stuff
+	    FIT
+					
