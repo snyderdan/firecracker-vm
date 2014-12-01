@@ -576,6 +576,24 @@ fvm_dup_00
 
                         
 fvm_if
+                        mov     G1,#4
+                        call    #fvm_getdata                  ' ensure we have data available
+                        
+                        shr     flags,#1                wc,nr ' set carry flag
+              if_c      xor     flags,#%0011            wz,nr ' set zero flag depending on carry
+              if_nc     xor     flags,#%0010            wz,nr ' set zero if no carry
+                        mov     fvm_if_wa,fvm_if_op           ' copy operation into work area
+
+                        rdbyte  G1,G0                         ' read condition code
+                        shl     G1,#18                        ' shift to condition code
+                        or      fvm_if_wa,G1                  ' set condition code
+                         
+
+fvm_if_wa     long      0
+fvm_if_op
+              if_never  jmp     #fvm_if_end                   ' jump to address (no cond code)
+fvm_if_end
+                        
 fvm_jmp
 fvm_defmc
 
@@ -686,32 +704,32 @@ stack_limit   long      FVM_DEFAULT_STACK_SIZE-1
 ' 
 delay_ctr     long      %0_00100_000_00000000_000000_000_010000   ' use pin 16 for NCO, reads into pin 17
 
-pwm_base      long      1       ' PWM table   
-macro_base    long      1       ' start of macro address table
-buf_base      long      1       ' buffer ptr
-stack_base    long      1       ' start of data stack 
-bufind_ptr    long      1       ' buffer index pointer
+pwm_base      long      0       ' PWM table   
+macro_base    long      0       ' start of macro address table
+buf_base      long      0       ' buffer ptr
+stack_base    long      0       ' start of data stack 
+bufind_ptr    long      0       ' buffer index pointer
 
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 ' general registers
-G0            res       1
-G1            res       1
-G2            res       1
-G3            res       1
-G4            res       1
-G5            res       1
-G6            res       1
-G7            res       1          
+G0            long      0
+G1            long      0
+G2            long      0
+G3            long      0
+G4            long      0
+G5            long      0
+G6            long      0
+G7            long      0          
 '
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-opcode        res       1       ' current opcode processed
-count         res       1       ' number of bytes processed
-buf_proc      res       1       ' index of buffer processed
-flags         res       1       ' internal VM flags
-stack_ind     res       1       ' current index in stack
-stack_ptr     res       1       ' calculated at the start of each process
-macro         res       1       ' start of macro
-macno         res       1       ' length of macro
+opcode        long      0       ' current opcode processed
+count         long      0       ' number of bytes processed
+buf_proc      long      0       ' index of buffer processed
+flags         long      0       ' internal VM flags
+stack_ind     long      0       ' current index in stack
+stack_ptr     long      0       ' calculated at the start of each process
+macro         long      0       ' start of macro
+macno         long      0       ' length of macro
 
                         FIT
 
@@ -835,10 +853,10 @@ i2c_sdamask   long      1 << i2c_sda
 i2c_sclmask   long      1 << i2c_scl
 spi_mode      long      0
 
-temp          res       1
-buf_addr      res       1
-buf_ind       res       1
-spi_count     res       1
+temp          long      0
+buf_addr      long      0
+buf_ind       long      0
+spi_count     long      0
 
               FIT
 
@@ -1001,9 +1019,9 @@ dutyTable0D     long      0
 dutyTable0E     long      0
 dutyTable0F     long      0
 
-dutyReg       res       1    ' Register that duty cycle gets read into
-counter       res       1    ' Counter for generating the address table
-pinTableBase  res       1    ' HUBRAM address of pin addresses
-buffer        res       1    ' Bitmask buffer    
+dutyReg       long      0    ' Register that duty cycle gets read into
+counter       long      0    ' Counter for generating the address table
+pinTableBase  long      0    ' HUBRAM address of pin addresses
+buffer        long      0    ' Bitmask buffer    
                         FIT
                         
