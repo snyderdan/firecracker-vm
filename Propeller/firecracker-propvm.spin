@@ -1115,7 +1115,7 @@ pinTableBase  long      0    ' HUBRAM address of pin addresses
 buffer        long      0    ' Bitmask buffer    
                         FIT
 
-	
+        
 CON
 ''
 '' FireCracker SPI reciever -
@@ -1241,7 +1241,7 @@ buf_ind       res       1
 spi_count     res       1
 
               FIT
-	      
+              
 CON
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 '' Bottlerocket serial addressable LED driver
@@ -1260,13 +1260,54 @@ BRKT_OUTPUT_MASK = $0F000000
 
 BRKT_DEFAULT_BUF_LEN = 512
 BRKT_DEFAULT_BUF_NUM  = 4
+BRKT_BASE_PIN = 0
 
-BRKT_REQUEST_PIN_MASK = $E0000000
+BRKT_REQUEST_USE_MASK         = $80000000
+BRKT_REQUEST_PIN_MASK         = $60000000
 BRKT_REQUEST_START_INDEX_MASK = $1FF00000
-BRKT_REQUEST_END_INDEX_MASK = $000FF800
+BRKT_REQUEST_END_INDEX_MASK   = $000FF800
 
 DAT Bottlerocket 
-	    org 	0
+                        org       0
 ''do stuff
-	    FIT
-					
+brkt_00
+'' not sure what init I need
+brkt_wait_req_00
+'' assume long writes are atomic so I can just read violently
+                        mov     brkt_reg_a, brkt_req_q
+                        mov     brkt_reg_b, 3
+brkt_wait_req
+                        rdlong  brkt_req_cur, brkt_reg_a
+                        test    brkt_req_cur, BRKT_REQUEST_USE_MASK wz
+              if_nz     jmp     brkt_copy_buf
+                        add     brkt_reg_a, 4
+                        sub     brkt_reg_b, 1             wz
+	      if_z      jmp     brkt_wait_req_00
+                        jmp     brkt_wait_req
+brkt_copy_buf
+                        mov     brkt_reg_a, brkt_req_cur
+			shl     brkt_reg_a, 3+9
+			and     brkt_reg_a, $1F
+			mov     brkt_reg_b, brkt_req_cur
+			shl     brkt_reg_b, 3
+			and     brkt_reg_b, $1F
+			mov     brkt_reg_c, brkt_reg_a
+			sub     brkt_reg_a, brkt_reg_b
+			
+ 
+
+''These live in cogram
+brkt_buf_cur  byte      0[BRKT_DEFAULT_BUF_LEN]
+brkt_req_cur  long      0
+brkt_reg_a    long      0
+brkt_reg_b    long      0
+brkt_reg_c    long      0
+
+''These live in main memory HOW DO? Pass in? Can't fit 4x 512byte buffer in cogmem
+brkt_req_q    long      0[BRKT_DEFAULT_BUF_NUM]
+brkt_buf_0    byte      0
+brkt_buf_1    byte      0
+brkt_buf_2    byte      0
+brkt_buf_3    byte      0
+              FIT
+                                        
