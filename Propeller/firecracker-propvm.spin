@@ -1024,56 +1024,80 @@ CON
 
 BRKT_OUTPUT_MASK = $0F000000
 
-BRKT_DEFAULT_BUF_LEN = 512
+
 BRKT_DEFAULT_BUF_NUM  = 4
 BRKT_BASE_PIN = 0
 
-BRKT_REQUEST_USE_MASK         = $80000000
-BRKT_REQUEST_PIN_MASK         = $60000000
-BRKT_REQUEST_START_INDEX_MASK = $1FF00000
-BRKT_REQUEST_END_INDEX_MASK   = $000FF800
 
 DAT Bottlerocket 
                         org       0
-''do stuff
 brkt_00
-'' not sure what init I need
-brkt_wait_req_00
+'' Assumptions about memory
+'' PAR := address with val of lock
+'' PAR + 1 := address of queue, 4 longs longs
+'' PAR + 1 + 16 := buffer 0
+'' PAR + 1 + 16 + 512 := buffer 1
+'' and so forth
+                        rdlong  lock, par
+wait_req
 '' assume long writes are atomic so I can just read violently
-                        mov     brkt_reg_a, brkt_req_q
-                        mov     brkt_reg_b, 3
-brkt_wait_req
-                        rdlong  brkt_req_cur, brkt_reg_a
-                        test    brkt_req_cur, BRKT_REQUEST_USE_MASK wz
-              if_nz     jmp     brkt_copy_buf
-                        add     brkt_reg_a, 4
-                        sub     brkt_reg_b, 1             wz
-	      if_z      jmp     brkt_wait_req_00
-                        jmp     brkt_wait_req
-brkt_copy_buf
-                        mov     brkt_reg_a, brkt_req_cur
-			shl     brkt_reg_a, 3+9
-			and     brkt_reg_a, $1F
-			mov     brkt_reg_b, brkt_req_cur
-			shl     brkt_reg_b, 3
-			and     brkt_reg_b, $1F
-			mov     brkt_reg_c, brkt_reg_a
-			sub     brkt_reg_a, brkt_reg_b
+                        mov     reg_a, par
+			add     reg_a, #1
+                        mov     reg_b, #3
+:loop
+                        movd    :read, reg_a
+:read                   rdlong  0, reg_a
+                        test    req_cur, use_mask    wz
+              if_nz     jmp     copy_buf
+                        add     reg_a, #4
+                        djnz    reg_b, #:loop
+                        jmp     wait_req
+copy_buf
+                        mov     reg_b, req_cur '' store start index of copy
+                        and     reg_b, start_mask 
+                        shl     reg_b, #3
+                        
+                        mov     reg_a, req_cur '' store length of copy
+                        and     reg_a, end_mask 
+                        shl     reg_a, #(3+9)
+                        sub     reg_a, reg_b 
+			add     reg_a, #1
+			shr     reg_a, #2 '' divide by 4 
 			
+                        
+                        mov     reg_c, req_cur '' store pin #
+                        and     reg_c, pin_mask
+                        shl     reg_c, #1                 wz
+:loop
+              if_nz     add     reg_b, buf_len '' Z flag needed to prevent adding 512 on pin0
+                        djnz    reg_c, :loop              wz
+                        add     reg_b, #(4*4 + 1)
+                        add     reg_b, par '' reg_b now contains start address of copy
+copy_loop
+:loop
+                        mov     reg_c, #buf_cur
+                        movd    :read, reg_c
+'' read more than we need to for speed and laziness
+:read                   rdlong  0, reg_b
+                        add     reg_b, #4
+			add     reg_c, #1
+                        djnz    reg_a, #:loop
+                        
  
+use_mask      long      %1_00_000000000_000000000_00000000000
+pin_mask      long      %0_11_000000000_000000000_00000000000
+start_mask    long      %0_00_111111111_000000000_00000000000
+end_mask      long      %0_00_000000000_111111111_00000000000
 
-''These live in cogram
-brkt_buf_cur  byte      0[BRKT_DEFAULT_BUF_LEN]
-brkt_req_cur  long      0
-brkt_reg_a    long      0
-brkt_reg_b    long      0
-brkt_reg_c    long      0
+buf_len       word      512
 
-''These live in main memory HOW DO? Pass in? Can't fit 4x 512byte buffer in cogmem
-brkt_req_q    long      0[BRKT_DEFAULT_BUF_NUM]
-brkt_buf_0    byte      0
-brkt_buf_1    byte      0
-brkt_buf_2    byte      0
-brkt_buf_3    byte      0
+buf_cur       res       128
+req_cur       res       1
+lock          res       1
+
+reg_a         res       1
+reg_b         res       1
+reg_c         res       1
+
               FIT
                                         
