@@ -121,13 +121,12 @@ CON
   FVM_DEFMC_OPCODE = 19         ' define macro                                  ' both
   FVM_CALMC_OPCODE = 20         ' call macro                                    ' both (different implementations)
   FVM_RETMC_OPCODE = 21         ' return from macro                             ' macro only
-  FVM_DLAYM_OPCODE = 22         ' delay microseconds                            ' both
-  FVM_SAVMC_OPCODE = 23         ' save macro                                    ' both
-  FVM_DELMC_OPCODE = 24         ' delete macro                                  ' both
-  FVM_LDMC_OPCODE  = 25         ' preload macro                                 ' both
-  FVM_WAITS_OPCODE = 26         ' wait for signal                               ' both
-  FVM_POSTS_OPCODE = 27         ' post signal                                   ' both
-  FVM_KILLW_OPCODE = 28         ' kill wait                                     ' both
+  FVM_SAVMC_OPCODE = 22         ' save macro                                    ' both
+  FVM_DELMC_OPCODE = 23         ' delete macro                                  ' both
+  FVM_LDMC_OPCODE  = 24         ' preload macro                                 ' both
+  FVM_WAITS_OPCODE = 25         ' wait for signal                               ' both
+  FVM_POSTS_OPCODE = 26         ' post signal                                   ' both
+  FVM_KILLW_OPCODE = 27         ' kill wait                                     ' both
 
   MM_LOAD_MACRO    = 1
   MM_SAVE_MACRO    = 2
@@ -283,9 +282,10 @@ fvm_opcode_table                                              ' opcodes unavaila
                         jmp     #fvm_dup                      ' DUP   - Y 
                         jmp     #fvm_NOP                      ' IF    - N
                         jmp     #fvm_NOP                      ' JMP   - N
+                        jmp     #fvm_NOP                      ' JMPR  - N
                         jmp     #fvm_defmc                    ' DEFMC - Y 
-                        jmp     #fvm_calmc                    ' CALMC - Y 
-                        jmp     #fvm_dlaym                    ' DLAYM - Y 
+                        jmp     #fvm_calmc                    ' CALMC - Y
+                        jmp     #fvm_NOP                      ' RETMC - N  
                         jmp     #fvm_savmc                    ' SAVMC - Y 
                         jmp     #fvm_delmc                    ' DELMC - Y 
                         jmp     #fvm_ldmc                     ' LDMC  - Y 
@@ -367,9 +367,10 @@ fvm_write
 ''
 ''
                         cmp     stack_ind, #2           wz,wc ' ? - minimum data available
-              if_b      jmp     fvm_nodata                    ' Y - error
+              if_b      jmp     fvm_nodata                    ' N - leave
                         mov     G4, stack_ptr                 ' copy stack pointer
                         sub     G4, #1                        ' go to pin number
+                        
                         rdbyte  G1, G4                        ' read pin number
                         mov     G2, pwm_base                  ' load pwm base
                         sub     G4, #1                        ' go to value
@@ -394,35 +395,46 @@ fvm_write
                         
 fvm_delay
 ''
-'' FVM_DELAY macro takes an unsigned 32-bit integer in nano-seconds.
-'' of course, we are only running at 80 MHz so doing nano-seconds is tough.
-'' the function waits a minimum of 1300 ns, and has a resolution of 100 ns
+'' FVM_DELAY macro takes an unsigned 32-bit integer in micro-seconds.
+'' minimum wait time of 1.2us for 0 and 1us specified. All other values
+'' delay precisely.
 ''
 ''
-                        rdbyte  G1, stack_ptr                 ' read byte
+                        cmp     stack_ind, #4           wc,wz ' ? available data
+              if_b      jmp     #fvm_nodata                   ' N - leave           
+                        add     count, #1                     ' adjust count
+                        mov     G0, stack_ptr
+                        ' read byte by byte to avoid alignment issues
+                        rdbyte  G1, G0                        ' read byte
                         shl     G1, #24                       ' shift up
-                        add     stack_ptr, #1                 ' go to next byte
-                        rdbyte  G2, stack_ptr                 ' read byte
+                        add     G0, #1                        ' go to next byte
+                        rdbyte  G2, G0                        ' read byte
                         shl     G2, #16                       ' shift up
-                        add     stack_ptr, #1                 ' go to next byte
-                        rdbyte  G3, stack_ptr                 ' read byte
+                        add     G0, #1                        ' go to next byte
+                        rdbyte  G3, G0                        ' read byte
                         shl     G3, #8                        ' shift up
-                        add     stack_ptr, #1                 ' go to next byte
-                        rdbyte  G4, stack_ptr                 ' read byte
+                        add     G0, #1                        ' go to next byte
+                        rdbyte  G4, G0                        ' read byte
                         or      G4, G3
                         or      G4, G2
+                        
                         or      G4, G1                        ' construct number in G4
+                        sub     G4, #2                  wz,wc ' adjust remaining time
+              if_b      jmp     #fvm_end_processing           ' if time < 2 we leave
+                        mov     G0,#13                        ' otherwise, delay
+fvm_delay_00                                                  ' fill in to 2us
+                        djnz    G0,#fvm_delay_00
 
-                        sub     G4, num1300             wz,wc ' adjust remaining time
-              if_be     jmp     #fvm_delay_01                 ' if time is not positive, we leave
-fvm_delay_00
-                        sub     G4, #100                wz,wc ' 100ns per loop
-              if_a      jmp     #fvm_delay_00                 ' reloop
 fvm_delay_01
-                        sub     stack_ind, #4                 ' subtract four bytes
-                        and     stack_ind, #$FF               ' cap at four bits
-                        add     count, #1                
-                        jmp     #fvm_end_processing                                       
+                        sub     G4, #1                  wz,wc '
+              if_b      jmp     #fvm_end_processing                
+                        mov     G0,#16
+fvm_delay_02
+                        djnz    G0,#fvm_delay_02
+                        jmp     #fvm_delay_01
+                                                    
+                        
+                                                                            
                                                          
 fvm_inc
 ''
@@ -576,6 +588,12 @@ fvm_dup_00
 
                         
 fvm_if
+''
+'' FVM_IF opcode conditionally executes the next command after it. The next command
+'' has to be a command capable of changing the flow of the program, which include
+'' the following: FVM_JMP, FVM_JMPR, FVM_CALMC, FVM_RETMC
+'' If one of these instructions is not used after an IF, the VM halts. 
+'' 
                         mov     G1,#4
                         call    #fvm_getdata                  ' ensure we have data available
                         
@@ -595,57 +613,11 @@ fvm_if_op
 fvm_if_end
                         
 fvm_jmp
+fvm_jmpr
 fvm_defmc
 
 fvm_calmc
 fvm_retmc
-fvm_dlaym
-
-''
-'' FVM_DLAYM macro takes an unsigned 32-bit integer in micro-seconds.
-'' minimum wait time of 1.2us for 0 and 1us specified. All other values
-'' delay precisely.
-''
-''                       
-                        mov     G0, stack_base                ' stack base
-                        add     G0, stack_ind                 ' go to stack pointer
-                        nop
-                        nop                                   ' read byte by byte to avoid alignment issues
-                        rdbyte  G1, G0                        ' read byte
-                        shl     G1, #24                       ' shift up
-                        add     G0, #1                        ' go to next byte
-                        rdbyte  G2, G0                        ' read byte
-                        shl     G2, #16                       ' shift up
-                        add     G0, #1                        ' go to next byte
-                        rdbyte  G3, G0                        ' read byte
-                        shl     G3, #8                        ' shift up
-                        add     G0, #1                        ' go to next byte
-                        rdbyte  G4, G0                        ' read byte
-                        or      G4, G3
-                        or      G4, G2
-                        or      G4, G1                        ' construct number in G4
-
-                        sub     G4, #2                  wz,wc ' adjust remaining time
-              if_b      jmp     #fvm_dlaym_03                 ' if time is not positive, we leave
-fvm_dlaym_00            
-                        mov     G3,#8 
-fvm_dlaym_01
-                        sub     G3, #1                  wz
-              if_nz     jmp     #fvm_dlaym_01
-
-                        sub     G4, #1                  wz,wc ' subtract
-              if_a      jmp     #fvm_dlaym_00                 ' reloop
-
-                        mov     G3,#14 
-fvm_dlaym_02
-                        sub     G3, #1                  wz,wc
-              if_a      jmp     #fvm_dlaym_02
-                        jmp     #fvm_end_processing
-
-fvm_dlaym_03
-                        mov     G3,14
-              if_ae     jmp     #fvm_dlaym_02 
-                        jmp     #fvm_end_processing           ' leave
 
 fvm_savmc
 fvm_delmc
