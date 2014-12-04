@@ -46,3 +46,4 @@ firecracker-tester
 *.sublime-project
 breaks
 gmon.out
+*.binary
