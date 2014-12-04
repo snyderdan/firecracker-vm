@@ -92,21 +92,21 @@
 
 CON
 
-  FVM_DEFAULT_WA_SIZE     = 8192   ' macro work area                        
-  FVM_DEFAULT_NUM_MACROS  = 256  
+  FVM_DEFAULT_WA_SIZE     = 8192   ' macro work area
+  FVM_DEFAULT_NUM_MACROS  = 256
   FVM_DEFAULT_STACK_SIZE  = 256
   FVM_DEFAULT_BUFFER_SIZE = 256
   FVM_DEFAULT_NUM_OUTPUTS = 16
 
   FVM_OUTPUT_MASK = $FFFF0000
 
-  FVM_NOP_OPCODE   = 0                                                          ' both                 
+  FVM_NOP_OPCODE   = 0                                                          ' both
   FVM_PUSH_OPCODE  = 1                                                          ' both
   FVM_POP_OPCODE   = 2                                                          ' both
   FVM_WRITE_OPCODE = 3                                                          ' both
   FVM_DELAY_OPCODE = 4                                                          ' both
   FVM_INC_OPCODE   = 5                                                          ' both
-  FVM_DEC_OPCODE   = 6                                                          ' both 
+  FVM_DEC_OPCODE   = 6                                                          ' both
   FVM_ADD_OPCODE   = 7                                                          ' both
   FVM_SUB_OPCODE   = 8                                                          ' both
   FVM_CMP_OPCODE   = 9                                                          ' macro only
@@ -138,7 +138,7 @@ CON
 OBJ
 
   eeprom  :  "Propeller Eeprom"
-                                    
+
 VAR
 
   long FVM_PWM_table[FVM_DEFAULT_NUM_OUTPUTS] ' PWM outputs
@@ -154,7 +154,7 @@ VAR
   byte FVM_buffer_index                       ' index of buffer filled
 
   byte FVM_manager_request                    ' indicates request for macro manager
-  
+
   byte FVM_manager_request_addr               ' the macro number requested for operation
 
   byte FVM_signal                             ' signal line
@@ -181,15 +181,15 @@ PUB Start | n
 PUB MacroManager | address, s, len1, len2, end
 
   repeat while (true)
-  
+
     repeat while (!FVM_manager_request)    ' wait for a macro request
 
     if (FVM_manager_request == MM_LOAD_MACRO)           ' request to load macro
-    
+
       address := FVM_macros[FVM_manager_request_addr]   ' find entry
-       
+
       if (address & $FFFF)                              ' if it has a valid address in RAM then don't worry
-        FVM_manager_request := 0                        ' notify                        
+        FVM_manager_request := 0                        ' notify
         next
 
       if (!address)
@@ -216,28 +216,28 @@ PUB MacroManager | address, s, len1, len2, end
 
       len2 := word[s]                                   ' length of RAM block
 
-      repeat while (len2 and (s < end))                 ' search for empty RAM block 
+      repeat while (len2 and (s < end))                 ' search for empty RAM block
         s += len2 + 1
-        len2 := word[s] 
+        len2 := word[s]
 
       if (!len2 and ((end - s) => len1))
         eeprom.ToRam(s, s+len1, address)
         FVM_manager_request := 0
         next
-      
+
     elseif (FVM_manager_request == MM_SAVE_MACRO)
     elseif (FVM_manager_request == MM_DEL_MACRO)
-    
+
     else
       next
-           
+
 
 DAT FireCrackerVM
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 ''
 ''   FVM_entry -
-''      Start the Firecracker VM 
+''      Start the Firecracker VM
 ''
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
                         org     0
@@ -253,10 +253,10 @@ fvm_process
 ''
                         mov     stack_ptr, stack_base         ' load base address of stack
                         add     stack_ptr, stack_ind          ' calculate address of top of stack
-                        mov     G1, #1                        ' minimum length of 1 byte 
+                        mov     G1, #1                        ' minimum length of 1 byte
                         call    #fvm_getdata                  ' get opcode address
                         rdbyte  opcode, G0                    ' read opcode
-                        
+
 fvm_eval_opcode
                         mov     G1, #fvm_opcode_table         ' load G1 with opcode table address
                         add     G1, opcode                    ' add opcode offset
@@ -265,21 +265,21 @@ fvm_eval_opcode
 fvm_opcode_table                                              ' opcodes unavailable on the live input interpreter will be NOPs
                                                               ' OPCODE - AVAILABLE IN THIS FVM (Y/N)
                         jmp     #fvm_nop                      ' NOP   - Y
-                        jmp     #fvm_push                     ' PUSH  - Y 
-                        jmp     #fvm_pop                      ' POP   - Y 
-                        jmp     #fvm_write                    ' WRITE - Y 
-                        jmp     #fvm_delay                    ' DELAY - Y 
-                        jmp     #fvm_inc                      ' INC   - Y 
-                        jmp     #fvm_dec                      ' DEC   - Y 
-                        jmp     #fvm_add                      ' ADD   - Y 
-                        jmp     #fvm_sub                      ' SUB   - Y 
+                        jmp     #fvm_push                     ' PUSH  - Y
+                        jmp     #fvm_pop                      ' POP   - Y
+                        jmp     #fvm_write                    ' WRITE - Y
+                        jmp     #fvm_delay                    ' DELAY - Y
+                        jmp     #fvm_inc                      ' INC   - Y
+                        jmp     #fvm_dec                      ' DEC   - Y
+                        jmp     #fvm_add                      ' ADD   - Y
+                        jmp     #fvm_sub                      ' SUB   - Y
                         jmp     #fvm_NOP                      ' CMP   - N
-                        jmp     #fvm_or                       ' OR    - Y 
-                        jmp     #fvm_and                      ' AND   - Y 
+                        jmp     #fvm_or                       ' OR    - Y
+                        jmp     #fvm_and                      ' AND   - Y
                         jmp     #fvm_NOP                      ' TEST  - N
-                        jmp     #fvm_not                      ' NOT   - Y 
-                        jmp     #fvm_swap                     ' SWAP  - Y 
-                        jmp     #fvm_dup                      ' DUP   - Y 
+                        jmp     #fvm_not                      ' NOT   - Y
+                        jmp     #fvm_swap                     ' SWAP  - Y
+                        jmp     #fvm_dup                      ' DUP   - Y
                         jmp     #fvm_NOP                      ' IF    - N
                         jmp     #fvm_NOP                      ' JMP   - N
                         jmp     #fvm_NOP                      ' JMPR  - N
@@ -296,8 +296,8 @@ fvm_opcode_table                                              ' opcodes unavaila
 fvm_nop
 ''
 '' FVM_NOP macro does absolutely nothing but waste time and space.
-'' 
-''   
+''
+''
                         add     count, #1
                         jmp     #fvm_end_processing
 
@@ -307,17 +307,17 @@ fvm_push
 '' bytes that follow are to be pushed to the stack. The macro takes
 '' a minimum of two bytes
 ''
-''   
+''
                         mov     G1, #2                        ' add push opcode and length byte
                         call    #fvm_getdata                  ' ensure data is available
                         add     G0, #1                        ' go to length byte
-                        
+
                         ' time wasted here ...
-                        rdbyte  G1, G0                        ' read length into G1 
-                        
+                        rdbyte  G1, G0                        ' read length into G1
+
                         add     G1, #2                        ' add push opcode and length byte
                         call    #fvm_getdata                  ' ensure data is available
-                        
+
                         add     G0, #2                        ' go to data in buffer
                         and     G0, #$FF                      ' cap at 8-bits
                         add     count, G1                     ' update count of processed bytes
@@ -325,10 +325,10 @@ fvm_push
 
               if_nz     sub     G1, #1                        ' adjust G1 to relative data length
                         add     stack_ind, G1                 ' update stack index
-              if_nz     cmp     stack_ind, stack_limit  wz,wc ' ? - (stack index > stack limit) OR (length == 0)         
-              if_a      jmp     #fvm_push_01                  ' Y - no data gets pushed      
+              if_nz     cmp     stack_ind, stack_limit  wz,wc ' ? - (stack index > stack limit) OR (length == 0)
+              if_a      jmp     #fvm_push_01                  ' Y - no data gets pushed
 
-fvm_push_00             
+fvm_push_00
                         rdbyte  G3, G0                        ' read next byte
                         sub     G1, #1                  wz    ' decrement counter
                         add     G0, #1                        ' go to next byte in buffer
@@ -339,14 +339,14 @@ fvm_push_00
 fvm_push_01
                         tjz     G1, #fvm_end_processing       ' length of zero - lets go home
                         jmp     #fvm_stack_error              ' if length is not zero, then we have a stack error
-                                              
+
 fvm_pop
 ''
 '' FVM_POP macro is followed by a length byte and specifies
 '' how many bytes are popped from the stack. The pop simply decrements
 '' the stack pointer by the length field.
 ''
-''   
+''
                         mov     G1, #2                        ' ensure we have a length byte present
                         call    #fvm_getdata                  ' ^
                         add     G0, #1                        ' go to length byte
@@ -354,11 +354,11 @@ fvm_pop
                         nop
                         nop
                         rdbyte  G0, G0                        ' read length into G0
-                        cmpsub  stack_ind, G0           wc    ' compare and subtract if we can      
+                        cmpsub  stack_ind, G0           wc    ' compare and subtract if we can
               if_c      jmp     #fvm_end_processing           ' if index >= length popped, exit successful
                         jmp     #fvm_stack_error              ' otherwise, raise stack error
-                        
-                        
+
+
 fvm_write
 ''
 '' FVM_WRITE macro takes a 1 byte pin address and a 1 byte value.
@@ -387,12 +387,12 @@ fvm_write
                         shl     G0, #16
                         or      G3, G0
                         nop                                   ' above process scales 8-bit to 32-bit PWM (0x01010101 * value)
-                        
+
                         wrlong  G3, G2                        ' store value in table
                         add     count, #1                     ' add to count
                         jmp     #fvm_end_processing           ' exit
-                     
-                        
+
+
 fvm_delay
 ''
 '' FVM_DELAY macro takes an unsigned 32-bit integer in micro-seconds.
@@ -466,7 +466,7 @@ fvm_dec
 
                         jmp     #fvm_end_processing           ' exit
 
-fvm_add             
+fvm_add
 ''
 '' FVM_ADD macro pops the top two bytes on the stack, adds them
 '' and finally pushes the sum back to the stack
@@ -554,7 +554,7 @@ fvm_test
                         muxc    flags, #FVM_STATE_C
                         muxz    flags, #FVM_STATE_Z
                         jmp     #fvm_end_processing
-                        
+
 fvm_not
                         cmp     stack_ind, #1           wz,wc
               if_b      jmp     #fvm_nodata
@@ -562,7 +562,7 @@ fvm_not
                         xor     G0, #$FF
                         add     count, #1
                         wrbyte  G0, stack_ptr
-                        
+
                         jmp     #fvm_end_processing
                         
 fvm_swap                
@@ -593,10 +593,14 @@ fvm_dup
                         add     stack_ptr, G2                 ' go to new upper limit
                         cmp     stack_ptr, #255         wz,wc ' ? over stack limit
               if_a      jmp     #fvm_stack_error              ' Y
-                        sub     stack_ptr, G2                 ' N
-                        
-                        add     G2, stack_base                ' Go to bottom of values to duplicate
-                        add     count, #2
+                        mov     G2, stack_base                ' load stack base to G2
+                        add     G2, stack_ind                 ' add stack index
+                        mov     G3, G2                        ' copy to G3; one pointer goes up, the other goes down
+
+                        rdbyte  G1, G0                  wz    ' read length of data and test for zero
+
+                        sub     G2, G1                        ' go to lowest data
+              if_z      jmp     #fvm_end_processing           ' exit
                         tjz     G1, #fvm_end_processing       ' leave if zero                       
 
 fvm_dup_00
@@ -609,7 +613,7 @@ fvm_dup_00
 
                         jmp     #fvm_end_processing
 
-                        
+
 fvm_if
 ''
 '' FVM_IF opcode conditionally executes the next command after it. The next command
@@ -751,7 +755,7 @@ fvm_getdata             ' gets data from either buffer or macro area
 
                         mov     G7, G0                        ' load G7 with filled index
                         sub     G7, buf_proc                  ' subtract index to get length available
-                        
+
                         cmp     G7, G1                  wz,wc ' ? length available >= length requested (save result for later)
                         mov     G0, buf_base                  ' load G0 with buffer pointer
                         add     G0, buf_proc                  ' go to next process index
@@ -761,9 +765,9 @@ fvm_getdata_ret
                         jmp     #fvm_end_processing           ' otherwise end processing
 
 
-fvm_nodata              ' not enough data is on the stack                                      
+fvm_nodata              ' not enough data is on the stack
 fvm_stack_error         ' stack overflow/underflow
-fvm_err_processing                                                                 
+fvm_err_processing
 fvm_end_processing
                         add     buf_proc, count               ' add count to buffer processed index
                         and     buf_proc, #$FF                ' cap at 8 bits
@@ -778,8 +782,8 @@ stack_limit   long      FVM_DEFAULT_STACK_SIZE-1
 ' main issue is that each clock is 12.5 ns, so we can't really subtract
 ' 12.5 ns and there is no way to accumulate the .5 without going to
 ' 25 ns resolution. And at that rate I may as well
-' wait the 100 ns with no counter. 
-' 
+' wait the 100 ns with no counter.
+'
 delay_ctr     long      %0_00100_000_00000000_000000_000_010000   ' use pin 16 for NCO, reads into pin 17
 
 ' global resources
@@ -954,7 +958,7 @@ DAT PWMHandler
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 ''
-''   hires - PWM driver 
+''   hires - PWM driver
 ''   Code copied from PropPWM and modified for 16 outputs instead of all 32
 ''   allows for easier management of memory, as well as half the memory use
 ''
@@ -975,89 +979,89 @@ hires
                         mov     pinTableBase,par             ' Move in the HUBRAM address of the pin values table
                         mov     counter,#16                  ' Counter used to generate the table of pin HUBRAM addresses
                         mov     dutyReg,#pinAddress00
-                        
+
 ' Initializes a table containing the HUBRAM address of every pin
 ' in order to avoid having to increment a reference address each
 ' time we have to access the table, thus increasing speed.
 
 setup
                         movd    tableEntry, dutyReg
-                        add     dutyReg,#1 
-tableEntry                                   
-                        add     0000,pinTableBase 
+                        add     dutyReg,#1
+tableEntry
+                        add     0000,pinTableBase
                         djnz    counter, #setup
-                        
-dutyStart               
+
+dutyStart
                         rdlong  dutyReg,pinAddress00         ' Read the value of the zero-th pin into the dutyReg
                         add     dutyTable00,dutyReg       wc   ' Add to the accumulator
               if_c      or      buffer,pinMask00             ' If a carry was generated, set the pin to high
-              
-                        rdlong  dutyReg,pinAddress01         ' repeat this process, each time going to the next pin, and next 
+
+                        rdlong  dutyReg,pinAddress01         ' repeat this process, each time going to the next pin, and next
                         add     dutyTable01,dutyReg       wc
-              if_c      or      buffer,pinMask01 
+              if_c      or      buffer,pinMask01
 
                         rdlong  dutyReg,pinAddress02         ' This goes on 16 times. Once per pin.
                         add     dutyTable02,dutyReg       wc
-              if_c      or      buffer,pinMask02 
+              if_c      or      buffer,pinMask02
 
                         rdlong  dutyReg,pinAddress03
                         add     dutyTable03,dutyReg       wc
-              if_c      or      buffer,pinMask03 
+              if_c      or      buffer,pinMask03
 
                         rdlong  dutyReg,pinAddress04
                         add     dutyTable04,dutyReg       wc
-              if_c      or      buffer,pinMask04 
+              if_c      or      buffer,pinMask04
 
                         rdlong  dutyReg,pinAddress05
                         add     dutyTable05,dutyReg       wc
-              if_c      or      buffer,pinMask05 
+              if_c      or      buffer,pinMask05
 
                         rdlong  dutyReg,pinAddress06
                         add     dutyTable06,dutyReg       wc
-              if_c      or      buffer,pinMask06 
+              if_c      or      buffer,pinMask06
 
                         rdlong  dutyReg,pinAddress07
                         add     dutyTable07,dutyReg       wc
-              if_c      or      buffer,pinMask07 
+              if_c      or      buffer,pinMask07
 
                         rdlong  dutyReg,pinAddress08
                         add     dutyTable08,dutyReg       wc
-              if_c      or      buffer,pinMask08 
+              if_c      or      buffer,pinMask08
 
                         rdlong  dutyReg,pinAddress09
                         add     dutyTable09,dutyReg       wc
-              if_c      or      buffer,pinMask09 
+              if_c      or      buffer,pinMask09
 
                         rdlong  dutyReg,pinAddress0A
                         add     dutyTable0A,dutyReg       wc
-              if_c      or      buffer,pinMask0A 
+              if_c      or      buffer,pinMask0A
 
                         rdlong  dutyReg,pinAddress0B
                         add     dutyTable0B,dutyReg       wc
-              if_c      or      buffer,pinMask0B 
+              if_c      or      buffer,pinMask0B
 
                         rdlong  dutyReg,pinAddress0C
                         add     dutyTable0C,dutyReg       wc
-              if_c      or      buffer,pinMask0C 
+              if_c      or      buffer,pinMask0C
 
                         rdlong  dutyReg,pinAddress0D
                         add     dutyTable0D,dutyReg       wc
-              if_c      or      buffer,pinMask0D 
+              if_c      or      buffer,pinMask0D
 
                         rdlong  dutyReg,pinAddress0E
                         add     dutyTable0E,dutyReg       wc
-              if_c      or      buffer,pinMask0E 
+              if_c      or      buffer,pinMask0E
 
                         rdlong  dutyReg,pinAddress0F
                         add     dutyTable0F,dutyReg       wc
-              if_c      or      buffer,pinMask0F 
+              if_c      or      buffer,pinMask0F
 
-                        mov     dira,buffer                     ' Set those pins to output                       
-                        mov     outa,buffer                     ' Write high to the pins set      
+                        mov     dira,buffer                     ' Set those pins to output
+                        mov     outa,buffer                     ' Write high to the pins set
                         xor     buffer,buffer                   ' Clear buffer for next cycle
                         jmp     #dutyStart                      ' Go to next cycle
 
-' Pin mask table used to set pins                        
+' Pin mask table used to set pins
 pinMask00     long      %0000_0000_0000_0000_0000_0000_0000_0001
 pinMask01     long      %0000_0000_0000_0000_0000_0000_0000_0010
 pinMask02     long      %0000_0000_0000_0000_0000_0000_0000_0100
@@ -1115,14 +1119,14 @@ pinTableBase  long      0    ' HUBRAM address of pin addresses
 buffer        long      0    ' Bitmask buffer    
                         FIT
 
-        
+
 CON
 ''
 '' FireCracker SPI reciever -
-''      
+''
 
 
-  spi_clk  = 18                 ' clock pin             
+  spi_clk  = 18                 ' clock pin
   spi_mosi = 19                 ' master out / slave in
   spi_miso = 20                 ' master in / slave out
   spi_cs   = 21                 ' chip select
@@ -1149,7 +1153,7 @@ recv_entry
                         or      dira,spi_clkmask
                         or      outa,spi_clkmask
 recv_entry00
-                        or      phsa, phsb              wz,nr ' ? either pin gets a positive edge                     
+                        or      phsa, phsb              wz,nr ' ? either pin gets a positive edge
               if_z      jmp     #recv_entry00                 ' N - reloop if neither pin set
 
                         andn    outa,spi_clkmask
@@ -1183,7 +1187,7 @@ spi_entry
 
 ''
 '' Maximum data rate of 2Mb/s (256KB/s)
-'' 
+''
 '' right now, capable speed is between 1.94Mb/s and 2.16Mb/s
 '' which is between 248KB/s and 276KB/s. I would cap it
 '' at 2Mb/s because going any faster requires sharp timing
@@ -1210,11 +1214,11 @@ spi_waitloop00
                         add     temp, #1
                         wrbyte  temp, buf_ind
                         jmp     #spi_waitloop
-                        
-                                    
-                                  
+
+
+
 i2c_entry
-                                   
+
 
 zero          long      0
 one           long      1
@@ -1241,18 +1245,18 @@ buf_ind       res       1
 spi_count     res       1
 
               FIT
-              
+
 CON
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 '' Bottlerocket serial addressable LED driver
-'' 
-'' Bottlerocket maintains four 512-byte buffers of data used to feed 
-'' one pin each. It runs on its own cog and consumes write requests 
-'' consisting of a buffer number and a start and end index in that 
+''
+'' Bottlerocket maintains four 512-byte buffers of data used to feed
+'' one pin each. It runs on its own cog and consumes write requests
+'' consisting of a buffer number and a start and end index in that
 '' buffer.
-'' 
-'' The buffers are locked while data is in flight, and will reject 
-'' updates made until data write is completed. 
+''
+'' The buffers are locked while data is in flight, and will reject
+'' updates made until data write is completed.
 ''
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
@@ -1263,7 +1267,7 @@ BRKT_DEFAULT_BUF_NUM  = 4
 BRKT_BASE_PIN = 0
 
 
-DAT Bottlerocket 
+DAT Bottlerocket
                         org       0
 brkt_00
 '' Assumptions about memory
@@ -1276,10 +1280,11 @@ brkt_00
 wait_req
 '' assume long writes are atomic so I can just read violently
                         mov     reg_a, par
-			add     reg_a, #1
+                        add     reg_a, #1
                         mov     reg_b, #3
 :loop
                         movd    :read, reg_a
+                        nop ' want to do real work
 :read                   rdlong  0, reg_a
                         test    req_cur, use_mask    wz
               if_nz     jmp     copy_buf
@@ -1287,37 +1292,43 @@ wait_req
                         djnz    reg_b, #:loop
                         jmp     wait_req
 copy_buf
-                        mov     reg_b, req_cur '' store start index of copy
-                        and     reg_b, start_mask 
+                        mov     reg_b, req_cur ' store start index of copy
+                        and     reg_b, start_mask
                         shl     reg_b, #3
-                        
-                        mov     reg_a, req_cur '' store length of copy
-                        and     reg_a, end_mask 
+
+                        mov     reg_a, req_cur ' store length of copy
+                        and     reg_a, end_mask
                         shl     reg_a, #(3+9)
-                        sub     reg_a, reg_b 
-			add     reg_a, #1
-			shr     reg_a, #2 '' divide by 4 
-			
-                        
-                        mov     reg_c, req_cur '' store pin #
+                        sub     reg_a, reg_b
+                        add     reg_a, #1
+                        test    reg_a, #3                 wz  'check if we're going to need to round up
+                        shr     reg_a, #2 ' divide by 4
+              if_nz     add     reg_a, #1 ' round up
+
+                        mov     reg_c, req_cur ' store pin #
                         and     reg_c, pin_mask
                         shl     reg_c, #1                 wz
 :loop
-              if_nz     add     reg_b, buf_len '' Z flag needed to prevent adding 512 on pin0
+              if_nz     add     reg_b, buf_len ' Z flag needed to prevent adding 512 on pin0
                         djnz    reg_c, :loop              wz
                         add     reg_b, #(4*4 + 1)
-                        add     reg_b, par '' reg_b now contains start address of copy
+                        add     reg_b, par ' reg_b now contains start address of copy
 copy_loop
+                        lockset lock                      wc 'Get the lock for all of the buffers
+              if_c      jmp     copy_loop
 :loop
                         mov     reg_c, #buf_cur
                         movd    :read, reg_c
+                        nop
 '' read more than we need to for speed and laziness
 :read                   rdlong  0, reg_b
                         add     reg_b, #4
-			add     reg_c, #1
+                        add     reg_c, #1
                         djnz    reg_a, #:loop
-                        
- 
+                        lockclr lock 'Release it
+write_buf
+
+
 use_mask      long      %1_00_000000000_000000000_00000000000
 pin_mask      long      %0_11_000000000_000000000_00000000000
 start_mask    long      %0_00_111111111_000000000_00000000000
@@ -1334,4 +1345,4 @@ reg_b         res       1
 reg_c         res       1
 
               FIT
-                                        
+
