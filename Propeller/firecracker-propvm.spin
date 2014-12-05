@@ -1048,7 +1048,7 @@ wait_req
                         movd    :read, reg_a
                         nop ' want to do real work
 :read                   rdlong  0, reg_a
-                        test    req_cur, use_mask    wz
+                        test    req_cur, use_mask         wz
               if_nz     jmp     copy_buf
                         add     reg_a, #4
                         djnz    reg_b, #:loop
@@ -1056,28 +1056,31 @@ wait_req
 copy_buf
                         mov     reg_b, req_cur ' store start index of copy
                         and     reg_b, start_mask
-                        shl     reg_b, #3
+                        shr     reg_b, #5
 
                         mov     reg_a, req_cur ' store length of copy
                         and     reg_a, end_mask
-                        shl     reg_a, #(3+9)
+                        shr     reg_a, #(5+9)
                         sub     reg_a, reg_b
                         add     reg_a, #1
-                        test    reg_a, #3                 wz  'check if we're going to need to round up
+                        test    reg_a, #3                 wz  ' check if we're going to need to round up
                         shr     reg_a, #2 ' divide by 4
               if_nz     add     reg_a, #1 ' round up
 
+                        mov     reg_d, reg_a ' Make copy for later
+                        shl     reg_d, #5 ' multiply by 32 to get in # bits to send
+
                         mov     reg_c, req_cur ' store pin #
                         and     reg_c, pin_mask
-                        shl     reg_c, #1                 wz
+                        shr     reg_c, #1                 wz
 :loop
               if_nz     add     reg_b, buf_len ' Z flag needed to prevent adding 512 on pin0
-                        djnz    reg_c, :loop              wz
+                        djnz    reg_c, :loop              wz ' Clears z flag if we jump back
                         add     reg_b, #(4*4 + 1)
                         add     reg_b, par ' reg_b now contains start address of copy
-copy_loop
+get_lock
                         lockset lock                      wc 'Get the lock for all of the buffers
-              if_c      jmp     copy_loop
+              if_c      jmp    get_lock
 :loop
                         mov     reg_c, #buf_cur
                         movd    :read, reg_c
@@ -1087,14 +1090,40 @@ copy_loop
                         add     reg_b, #4
                         add     reg_c, #1
                         djnz    reg_a, #:loop
-                        lockclr lock 'Release it
+rel_lock
+                        lockclr lock ' Release it
 write_buf
+                        mov     reg_a, req_cur
+                        and     reg_a, pin_mask
+                        add     reg_a, #BRKT_BASE_PIN
+                        mov     reg_b, #1
+                        shr     reg_b, reg_a
+                        or      dira, reg_b ' Toggle output on
+                        andn    outa, reg_b ' Set output low, need to see how much time setup takes
+                        mov     reg_c, #buf_cur
+:loop
+                        test    reg_d, #31                wz
+              if_z      movs    :read_next,  reg_c
+                        nop
+:read_next    if_z      mov     reg_a, reg_c
+                        test    reg_a, #1                 wz
+              if_z      mov     wait_until, t1h
+              if_nz     mov     wait_until, t0h
+                        or      outa, reg_b
+              if_z      waitcnt wait_until, t1l
+              if_nz     waitcnt wait_until, t0l
+                        andn    outa, reg_b
+                        waitcnt wait_until, #0
+                        djnz    reg_d, #:loop
+write_done
+                        jmp     wait_req
 
 
-use_mask      long      %1_00_000000000_000000000_00000000000
-pin_mask      long      %0_11_000000000_000000000_00000000000
-start_mask    long      %0_00_111111111_000000000_00000000000
-end_mask      long      %0_00_000000000_111111111_00000000000
+use_mask      long      %000000000_00000000_000000000_00_00_1
+pin_mask      long      %000000000_00000000_000000000_00_11_0
+timing_mask   long      %000000000_00000000_000000000_11_00_0
+start_mask    long      %000000000_00000000_111111111_00_00_0
+end_mask      long      %000000000_11111111_000000000_00_00_0
 
 buf_len       word      512
 
@@ -1102,9 +1131,18 @@ buf_cur       res       128
 req_cur       res       1
 lock          res       1
 
+wait_until    res       1
+t1h           res       1
+t1l           res       1
+t0h           res       1
+t0l           res       1
+
+
+
 reg_a         res       1
 reg_b         res       1
 reg_c         res       1
+reg_d         res       1
 
               FIT
 
