@@ -1099,22 +1099,25 @@ write_buf
                         mov     reg_b, #1
                         shr     reg_b, reg_a
                         or      dira, reg_b ' Toggle output on
-                        andn    outa, reg_b ' Set output low, need to see how much time setup takes
-                        mov     reg_c, #buf_cur
+                        andn    outa, reg_b ' Set output low
+                        mov     reg_c, #buf_cur ' Prep registers
+                        mov     reg_a, buf_cur  ' Prep registers
+                        '' Need to set C in a less shitty way
+                        shr     use_mask, #1              wc, nr
 :loop
-                        test    reg_d, #31                wz
-              if_z      movs    :read_next,  reg_c
-                        nop
-:read_next    if_z      mov     reg_a, reg_c
-                        test    reg_a, #1                 wz
-              if_z      mov     wait_until, t1h
-              if_nz     mov     wait_until, t0h
+              if_nc     test    reg_d, #31                wz ' Check if we need another long and are not on the first iteration
+              if_z      movs    :read_next,  reg_c           ' If we need another long, prep to copy it from our buffer
+                        shr     reg_a, #1                 wc ' Check if we have a 1 or a zero bit
+:read_next    if_z      mov     reg_a, 0                     ' Copy the next long from our buffer
+              if_z      add     reg_c, #1                    ' Increment our pointer into the buffer
+              if_c      mov     wait_until, t1h              '
+              if_nc     mov     wait_until, t0h
                         or      outa, reg_b
-              if_z      waitcnt wait_until, t1l
-              if_nz     waitcnt wait_until, t0l
+              if_c      waitcnt wait_until, t1l
+              if_nc     waitcnt wait_until, t0l
                         andn    outa, reg_b
                         waitcnt wait_until, #0
-                        djnz    reg_d, #:loop
+                        djnz    reg_d, #:loop             wz, wc
 write_done
                         jmp     wait_req
 
