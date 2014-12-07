@@ -133,7 +133,12 @@ CON
   MM_SAVE_MACRO    = 2
   MM_DEL_MACRO     = 4
 
+  BRKT_OUTPUT_MASK = $0F000000
 
+  BRKT_NUM_PINS = 4
+  BRKT_BUF_LEN = 480
+  BRKT_BASE_PIN = 0
+  BRKT_TIMING_LEN = 5
 
 OBJ
 
@@ -161,15 +166,15 @@ VAR
 
   byte FVM_macro_space[FVM_DEFAULT_WA_SIZE]   ' memory allocated for macro(s) being executed
 
-  long BRKT_requests[4]
+  long BRKT_requests[BRKT_NUM_PINS]           ' Space for write requests
 
-  long BRKT_bufs[4*480]
+  long BRKT_bufs[BRKT_NUM_PINS*BRKT_BUF_LEN/4]  ' Space for data buffers
 
-  long BRKT_timings[4*5]
+  long BRKT_timings[BRKT_NUM_PINS*BRKT_TIMING_LEN] ' Space for pin timings
 
-  byte BRKT_buf_lock
+  byte BRKT_buf_lock                          ' Store the buffer lock
 
-  byte BRKT_tim_lock
+  byte BRKT_tim_lock                          ' Store the timing lock
 
 PUB Start | n
 
@@ -1282,22 +1287,10 @@ CON
 ''
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
-BRKT_OUTPUT_MASK = $0F000000
-
-
-BRKT_DEFAULT_BUF_NUM  = 4
-BRKT_BASE_PIN = 0
-
 
 DAT Bottlerocket
                         org       0
 brkt_00
-'' Assumptions about memory
-'' PAR := address with val of lock
-'' PAR + 1 := address of queue, 4 longs longs
-'' PAR + 1 + 16 := buffer 0
-'' PAR + 1 + 16 + 512 := buffer 1
-'' and so forth
 wait_req
 '' assume long writes are atomic so I can just read violently
                         mov     reg_a, brkt_req_base
@@ -1305,10 +1298,10 @@ wait_req
 :loop
 :read                   rdlong  req_cur, reg_a
                         test    req_cur, use_mask         wz
-              if_nz     jmp     copy_buf
+              if_nz     jmp     #copy_buf
                         add     reg_a, #4
                         djnz    reg_b, #:loop
-                        jmp     wait_req
+                        jmp     #wait_req
 copy_buf
                         mov     reg_b, req_cur ' store start index of copy
                         and     reg_b, start_mask
@@ -1319,12 +1312,12 @@ copy_buf
                         shr     reg_a, #(5+9)
                         sub     reg_a, reg_b
                         add     reg_a, #1
+                        mov     reg_d, reg_a ' Make a copy for later
                         test    reg_a, #3                 wz  ' check if we're going to need to round up
                         shr     reg_a, #2 ' divide by 4
-              if_nz     add     reg_a, #1 ' round up
+              if_nz     add     reg_a, #1 ' round up so we don't miss
 
-                        mov     reg_d, reg_a ' Make copy for later
-                        shl     reg_d, #5 ' multiply by 32 to get in # bits to send
+                        shl     reg_d, #3 ' multiply by 8 to get in # bits to send
 
                         mov     reg_c, req_cur ' store pin #
                         and     reg_c, pin_mask
