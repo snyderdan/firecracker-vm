@@ -47,3 +47,4 @@ firecracker-tester
 breaks
 gmon.out
 *.binary
+*.eeprom
