@@ -77,7 +77,7 @@
 ''      The next two bytes are for the callers program pointer. (the program pointer is of the
 ''      code section of the macro. Which means PC=0 is PC=macro_base+5)
 ''
-'' What needs to be done -    
+'' What needs to be done -
 ''    - Separate input and macro interpreter versions of FVM
 ''    - Create a test with another board to test SPI
 ''    - Write I2C com
@@ -88,7 +88,7 @@
 ''    - correct macro processing to account for memory structure
 ''      with the new limits of approximately 160 LEDs and
 ''    - update communication docs
-''       
+''
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
 CON
@@ -191,7 +191,7 @@ PUB Start | n
   bufind_ptr := @FVM_buffer_index
   macro_base := @FVM_macros
   signal_ptr := @FVM_signal
-  
+
   cognew(@fvm_entry, 0)
 
   cognew(@fvm_entry, 0)                                 ' start new macro version
@@ -312,24 +312,14 @@ fvm_opcode_table                                              ' opcodes unavaila
                         jmp     #fvm_dup                      ' DUP   - Y
                         jmp     #fvm_NOP                      ' IF    - N
                         jmp     #fvm_NOP                      ' JMP   - N
-<<<<<<< HEAD
                         jmp     #fvm_NOP                      ' JMPR  - N
-                        jmp     #fvm_defmc                    ' DEFMC - Y 
-                        jmp     #fvm_calmc                    ' CALMC - Y
-                        jmp     #fvm_NOP                      ' RETMC - N  
-                        jmp     #fvm_savmc                    ' SAVMC - Y 
-                        jmp     #fvm_delmc                    ' DELMC - Y 
-                        jmp     #fvm_ldmc                     ' LDMC  - Y 
-                        jmp     #fvm_waits                    ' WAITS - Y 
-=======
                         jmp     #fvm_defmc                    ' DEFMC - Y
                         jmp     #fvm_calmc                    ' CALMC - Y
-                        jmp     #fvm_dlaym                    ' DLAYM - Y
+                        jmp     #fvm_NOP                      ' RETMC - N
                         jmp     #fvm_savmc                    ' SAVMC - Y
                         jmp     #fvm_delmc                    ' DELMC - Y
                         jmp     #fvm_ldmc                     ' LDMC  - Y
                         jmp     #fvm_waits                    ' WAITS - Y
->>>>>>> c3d35c3694c4cd1d5f15621f8055e9db76a368ca
                         jmp     #fvm_posts                    ' POSTS - Y
                         jmp     #fvm_killw                    ' KILLW - Y
 
@@ -410,7 +400,7 @@ fvm_write
               if_b      jmp     fvm_nodata                    ' N - leave
                         mov     G4, stack_ptr                 ' copy stack pointer
                         sub     G4, #1                        ' go to pin number
-                        
+
                         rdbyte  G1, G4                        ' read pin number
                         mov     G2, pwm_base                  ' load pwm base
                         sub     G4, #1                        ' go to value
@@ -441,7 +431,7 @@ fvm_delay
 ''
 ''
                         cmp     stack_ind, #4           wc,wz ' ? available data
-              if_b      jmp     #fvm_nodata                   ' N - leave           
+              if_b      jmp     #fvm_nodata                   ' N - leave
                         add     count, #1                     ' adjust count
                         mov     G0, stack_ptr
                         ' read byte by byte to avoid alignment issues
@@ -457,7 +447,7 @@ fvm_delay
                         rdbyte  G4, G0                        ' read byte
                         or      G4, G3
                         or      G4, G2
-                        
+
                         or      G4, G1                        ' construct number in G4
                         sub     G4, #2                  wz,wc ' adjust remaining time
               if_b      jmp     #fvm_end_processing           ' if time < 2 we leave
@@ -466,24 +456,16 @@ fvm_delay_00                                                  ' fill in to 2us
                         djnz    G0,#fvm_delay_00
 
 fvm_delay_01
-<<<<<<< HEAD
                         sub     G4, #1                  wz,wc '
-              if_b      jmp     #fvm_end_processing                
+              if_b      jmp     #fvm_end_processing
                         mov     G0,#16
 fvm_delay_02
                         djnz    G0,#fvm_delay_02
                         jmp     #fvm_delay_01
-                                                    
-                        
-                                                                            
-                                                         
-=======
-                        sub     stack_ind, #4                 ' subtract four bytes
-                        and     stack_ind, #$FF               ' cap at four bits
-                        add     count, #1
-                        jmp     #fvm_end_processing
 
->>>>>>> c3d35c3694c4cd1d5f15621f8055e9db76a368ca
+
+
+
 fvm_inc
 ''
 '' FVM_INC macro simply takes the byte on the top of the stack
@@ -519,7 +501,7 @@ fvm_add
 '' FVM_ADD macro pops the top two bytes on the stack, adds them
 '' and finally pushes the sum back to the stack
 ''
-''                      
+''
                         rdbyte  G0, stack_ptr
                         sub     stack_ptr, #1
                         cmp     stack_ind, #2           wz,wc
@@ -529,7 +511,7 @@ fvm_add
                         wrbyte  G0, stack_ptr
                         add     count,#1
                         sub     stack_ind, #1
-                        
+
                         jmp     #fvm_end_processing
 fvm_sub
 ''
@@ -538,45 +520,33 @@ fvm_sub
 '' the (top) - (top - 1), and pushes the result back
 '' to the stack
 ''
-''                            
+''
                         rdbyte  G0, stack_ptr
                         sub     stack_ptr, #1
-                        cmp     stack_ind, #2           wz,wc       
+                        cmp     stack_ind, #2           wz,wc
                         rdbyte  G1, stack_ptr
               if_b      jmp     #fvm_nodata
                         sub     G0, G1
                         wrbyte  G0, stack_ptr
-<<<<<<< HEAD
                         add     count, #1
                         sub     stack_ind, #1
-                        
-                        jmp     #fvm_end_processing
-                                                
-fvm_cmp                  
-=======
 
                         jmp     #fvm_end_processing
 
 fvm_cmp
->>>>>>> c3d35c3694c4cd1d5f15621f8055e9db76a368ca
                         rdbyte  G0, stack_ptr
                         sub     stack_ptr, #1
                         cmp     stack_ind, #2           wz,wc
                         rdbyte  G1, stack_ptr
               if_b      jmp     #fvm_nodata
                         add     count, #1
-                        
+
                         cmp     G0, G1                  wz,wc
                         muxc    flags, #FVM_STATE_C
                         muxz    flags, #FVM_STATE_Z
                         jmp     #fvm_end_processing
-<<<<<<< HEAD
-                        
-fvm_or                   
-=======
 
 fvm_or
->>>>>>> c3d35c3694c4cd1d5f15621f8055e9db76a368ca
                         rdbyte  G0, stack_ptr
                         sub     stack_ptr, #1
                         cmp     stack_ind, #2           wz,wc
@@ -584,19 +554,12 @@ fvm_or
               if_b      jmp     #fvm_nodata
                         or      G0, G1
                         wrbyte  G0, stack_ptr
-<<<<<<< HEAD
                         add     count, #1
                         sub     stack_ind, #1
-                        
-                        jmp     #fvm_end_processing
-                        
-fvm_and                 
-=======
 
                         jmp     #fvm_end_processing
 
 fvm_and
->>>>>>> c3d35c3694c4cd1d5f15621f8055e9db76a368ca
                         rdbyte  G0, stack_ptr
                         sub     stack_ptr, #1
                         cmp     stack_ind, #2           wz,wc
@@ -604,26 +567,19 @@ fvm_and
               if_b      jmp     #fvm_nodata
                         and     G0, G1
                         wrbyte  G0, stack_ptr
-<<<<<<< HEAD
                         add     count, #1
                         sub     stack_ind, #1
-                        
-                        jmp     #fvm_end_processing
-                        
-fvm_test                
-=======
 
                         jmp     #fvm_end_processing
 
 fvm_test
->>>>>>> c3d35c3694c4cd1d5f15621f8055e9db76a368ca
                         rdbyte  G0, stack_ptr
                         sub     stack_ptr, #1
                         cmp     stack_ind, #2           wz,wc
                         rdbyte  G1, stack_ptr
               if_b      jmp     #fvm_nodata
                         add     count, #1
-                        
+
                         test    G0, G1                  wz,wc
                         muxc    flags, #FVM_STATE_C
                         muxz    flags, #FVM_STATE_Z
@@ -638,13 +594,8 @@ fvm_not
                         wrbyte  G0, stack_ptr
 
                         jmp     #fvm_end_processing
-<<<<<<< HEAD
-                        
-fvm_swap                
-=======
 
 fvm_swap
->>>>>>> c3d35c3694c4cd1d5f15621f8055e9db76a368ca
                         rdbyte  G0, stack_ptr
                         sub     stack_ptr, #1
                         cmp     stack_ind, #2           wz,wc
@@ -657,19 +608,14 @@ fvm_swap
                         wrbyte  G1, stack_ptr
 
                         jmp     #fvm_end_processing
-<<<<<<< HEAD
-                        
-fvm_dup                 
-=======
 
 fvm_dup
->>>>>>> c3d35c3694c4cd1d5f15621f8055e9db76a368ca
                         mov     G1, #2
                         call    #fvm_getdata
 
                         add     G0, #1                        ' go to length count byte
                         mov     G2, stack_ind                 ' copy stack index into G2
-                        
+
                         rdbyte  G1, G0                        ' read length of data and test for zero
                         cmpsub  G2, G1                  wc    ' ? enough data present
               if_nc     jmp     #fvm_nodata                   ' N error
@@ -677,15 +623,11 @@ fvm_dup
                         add     stack_ptr, G2                 ' go to new upper limit
                         cmp     stack_ptr, #255         wz,wc ' ? over stack limit
               if_a      jmp     #fvm_stack_error              ' Y
-                        mov     G2, stack_base                ' load stack base to G2
-                        add     G2, stack_ind                 ' add stack index
-                        mov     G3, G2                        ' copy to G3; one pointer goes up, the other goes down
+                        sub     stack_ptr, G2                 ' N
 
-                        rdbyte  G1, G0                  wz    ' read length of data and test for zero
-
-                        sub     G2, G1                        ' go to lowest data
-              if_z      jmp     #fvm_end_processing           ' exit
-                        tjz     G1, #fvm_end_processing       ' leave if zero                       
+                        add     G2, stack_base                ' Go to bottom of values to duplicate
+                        add     count, #2
+                        tjz     G1, #fvm_end_processing       ' leave if zero
 
 fvm_dup_00
                         rdbyte  G0, G2                        ' read byte
@@ -703,21 +645,21 @@ fvm_if
 '' FVM_IF opcode conditionally executes the next command after it. The next command
 '' has to be a command capable of changing the flow of the program, which include
 '' the following: FVM_JMP, FVM_JMPR, FVM_CALMC, FVM_RETMC
-'' If one of these instructions is not used after an IF, the VM halts. 
-'' 
+'' If one of these instructions is not used after an IF, the VM halts.
+''
                         mov     G1,#3
                         call    #fvm_getdata                  ' ensure we have data available
-                        
+
                         shr     flags,#1                wc,nr ' set carry flag
               if_c      xor     flags,#%0011            wz,nr ' set zero flag depending on carry
               if_nc     xor     flags,#%0010            wz,nr ' set zero if no carry
-                        add     G0, #1                        ' go to condition code 
+                        add     G0, #1                        ' go to condition code
 
                         rdbyte  G1,G0                         ' read condition code
-                        mov     fvm_if_wa,fvm_if_op           ' copy operation into work area 
+                        mov     fvm_if_wa,fvm_if_op           ' copy operation into work area
                         shl     G1,#18                        ' shift to condition code
-                        
-                        or      fvm_if_wa,G1                  ' set condition code 
+
+                        or      fvm_if_wa,G1                  ' set condition code
 fvm_if_wa     if_never  jmp     #fvm_if_end                   ' work area where we construct condition test
 fvm_if_op     if_never  jmp     #fvm_if_end                   ' jump to address (no cond code)
                                                               ' if the condition is true, we continue as normal.
@@ -727,7 +669,7 @@ fvm_if_op     if_never  jmp     #fvm_if_end                   ' jump to address 
 
                         rdbyte  G1, G0                        ' read command
                         cmp     G1, #FVM_JMP_OPCODE     wz    ' ? jmp
-              if_z      jmp     #fvm_if_3                     ' Y 
+              if_z      jmp     #fvm_if_3                     ' Y
                         cmp     G1, #FVM_CALMC_OPCODE   wz    ' ? calmc
               if_z      jmp     #fvm_if_3                     ' Y
                         cmp     G1, #FVM_JMPR_OPCODE    wz    ' ? jmpr
@@ -740,15 +682,15 @@ fvm_if_3                mov     G1, #5
                         call    #fvm_getdata                  ' ensure we have extra bytes available
                         add     count, #2                     ' add count for address operand skipped
 fvm_if_1                add     count, #1                     ' add count for opcode skipped
-                                                                       
+
 fvm_if_end
                         add     count, #2                     ' add count for IF opcode
-                        jmp     #fvm_end_processing           ' exit 
-                        
+                        jmp     #fvm_end_processing           ' exit
+
 fvm_jmp
                         mov     G1, #3                        ' opcode + address
                         call    #fvm_getdata                  ' ensure we have data
-                        
+
                         add     G0, #1                        ' go to first byte of address
                         xor     count, count                  ' zero count (we are setting our program counter)
 
@@ -762,7 +704,7 @@ fvm_jmp
                         cmp     mac_ind, mac_len              ' ? index pointing past macro
               if_b      jmp     #fvm_end_processing           ' N
                         jmp     #fvm_err_processing           ' Y
-                             
+
 fvm_jmpr
                         mov     G1, #3                        '
                         call    #fvm_getdata                  '
@@ -784,63 +726,13 @@ fvm_jmpr
                         add     G0, mac_ind                   ' go to processing point
                         cmp     macro, G0               wz,wc '
               if_b      jmp     #fvm_err_processing           ' ensure we are within macro limit
-                        jmp     #fvm_end_processing           ' leave               
-                                                               
+                        jmp     #fvm_end_processing           ' leave
+
 fvm_defmc
 
 fvm_calmc
-                        
+
 fvm_retmc
-<<<<<<< HEAD
-=======
-fvm_dlaym
-
-''
-'' FVM_DLAYM macro takes an unsigned 32-bit integer in micro-seconds.
-'' minimum wait time of 1.2us for 0 and 1us specified. All other values
-'' delay precisely.
-''
-''
-                        mov     G0, stack_base                ' stack base
-                        add     G0, stack_ind                 ' go to stack pointer
-                        nop
-                        nop                                   ' read byte by byte to avoid alignment issues
-                        rdbyte  G1, G0                        ' read byte
-                        shl     G1, #24                       ' shift up
-                        add     G0, #1                        ' go to next byte
-                        rdbyte  G2, G0                        ' read byte
-                        shl     G2, #16                       ' shift up
-                        add     G0, #1                        ' go to next byte
-                        rdbyte  G3, G0                        ' read byte
-                        shl     G3, #8                        ' shift up
-                        add     G0, #1                        ' go to next byte
-                        rdbyte  G4, G0                        ' read byte
-                        or      G4, G3
-                        or      G4, G2
-                        or      G4, G1                        ' construct number in G4
-
-                        sub     G4, #2                  wz,wc ' adjust remaining time
-              if_b      jmp     #fvm_dlaym_03                 ' if time is not positive, we leave
-fvm_dlaym_00
-                        mov     G3,#8
-fvm_dlaym_01
-                        sub     G3, #1                  wz
-              if_nz     jmp     #fvm_dlaym_01
-
-                        sub     G4, #1                  wz,wc ' subtract
-              if_a      jmp     #fvm_dlaym_00                 ' reloop
-
-                        mov     G3,#14
-fvm_dlaym_02
-                        sub     G3, #1                  wz,wc
-              if_a      jmp     #fvm_dlaym_02
-                        jmp     #fvm_end_processing
-
-fvm_dlaym_03
-                        mov     G3,14
-              if_ae     jmp     #fvm_dlaym_02
-                        jmp     #fvm_end_processing           ' leave
->>>>>>> c3d35c3694c4cd1d5f15621f8055e9db76a368ca
 
 fvm_savmc
 fvm_delmc
@@ -865,13 +757,13 @@ fvm_waits_00
 fvm_waits_end
                         add     count, #1                     ' increment past waits opcode
                         jmp     #fvm_end_processing           ' leave
-                                                                      
+
 fvm_posts
                         rdbyte  G0, stack_ptr                 ' read signal to post
                         cmp     stack_ind, #1           wz,wc ' ensure we have data
               if_b      jmp     #fvm_nodata                   '
                         wrbyte  G0, signal_ptr                ' post
-                        
+
 fvm_killw               ' I dont know what I was planning with this kill wait. I'll leave it for if anyone gets an idea.
 
 
@@ -895,11 +787,7 @@ fvm_getdata             ' gets data from either buffer or macro area
                         add     G0, buf_proc                  ' go to next process index
 fvm_getdata_ret
               if_ae     ret                                   ' if length available >= length requested, return
-<<<<<<< HEAD
-                        xor     count, count                  ' zero count (no data follow through)   
-=======
                         xor     count, count                  ' zero count (no data follow through)
->>>>>>> c3d35c3694c4cd1d5f15621f8055e9db76a368ca
                         jmp     #fvm_end_processing           ' otherwise end processing
 
 
@@ -912,13 +800,6 @@ fvm_end_processing
                         xor     count, count                  ' zero count
                         jmp     #fvm_process                  ' reloop
 
-<<<<<<< HEAD
-=======
-
-
-num1300       long      1300
-num512        long      512
->>>>>>> c3d35c3694c4cd1d5f15621f8055e9db76a368ca
 
 stack_limit   long      FVM_DEFAULT_STACK_SIZE-1
 '
@@ -931,11 +812,10 @@ stack_limit   long      FVM_DEFAULT_STACK_SIZE-1
 '
 delay_ctr     long      %0_00100_000_00000000_000000_000_010000   ' use pin 16 for NCO, reads into pin 17
 
-<<<<<<< HEAD
 ' global resources
-pwm_base      long      0       ' PWM table   
+pwm_base      long      0       ' PWM table
 macro_base    long      0       ' start of macro address table
-signal_ptr    long      0       ' FVM signal channel                        
+signal_ptr    long      0       ' FVM signal channel
 
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 ' general registers
@@ -946,25 +826,7 @@ G3            long      0
 G4            long      0
 G5            long      0
 G6            long      0
-G7            long      0          
-=======
-pwm_base      long      1       ' PWM table
-macro_base    long      1       ' start of macro address table
-buf_base      long      1       ' buffer ptr
-stack_base    long      1       ' start of data stack
-bufind_ptr    long      1       ' buffer index pointer
-
-''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-' general registers
-G0            res       1
-G1            res       1
-G2            res       1
-G3            res       1
-G4            res       1
-G5            res       1
-G6            res       1
-G7            res       1
->>>>>>> c3d35c3694c4cd1d5f15621f8055e9db76a368ca
+G7            long      0
 '
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 ' VM components
@@ -972,13 +834,13 @@ opcode        long      0       ' current opcode processed
 count         long      0       ' number of bytes processed
 flags         long      0       ' internal VM flags
 ' stack related variables
-stack_base    long      0       ' start of data stack  
+stack_base    long      0       ' start of data stack
 stack_ind     long      0       ' current index in stack
 stack_ptr     long      0       ' calculated at the start of each process
 ' interpreter data source
 buf_base      long      0       ' buffer ptr
 bufind_ptr    long      0       ' buffer index pointer
-buf_proc      long      0       ' index of buffer processed 
+buf_proc      long      0       ' index of buffer processed
 ' macro processor data source
 macro         long      0       ' start of macro (not including header)
 mac_len       long      0       ' length of macro
@@ -986,20 +848,19 @@ mac_ind       long      0       ' macro index
 
                         FIT
 
-<<<<<<< HEAD
 CON
 
-  FVM_STATE_C   = %0000_0001    ' C flag 
+  FVM_STATE_C   = %0000_0001    ' C flag
   FVM_STATE_Z   = %0000_0010    ' Z flag
-  FVM_STATE_HLT = %0000_0100    ' halt state  
+  FVM_STATE_HLT = %0000_0100    ' halt state
 
 CON
 ''
 '' FireCracker SPI reciever -
-''      
+''
 
 
-  spi_clk  = 18                 ' clock pin             
+  spi_clk  = 18                 ' clock pin
   spi_mosi = 19                 ' master out / slave in
   spi_miso = 20                 ' master in / slave out
   spi_cs   = 21                 ' chip select
@@ -1026,7 +887,7 @@ recv_entry
                         or      dira,spi_clkmask
                         or      outa,spi_clkmask
 recv_entry00
-                        or      phsa, phsb              wz,nr ' ? either pin gets a positive edge                     
+                        or      phsa, phsb              wz,nr ' ? either pin gets a positive edge
               if_z      jmp     #recv_entry00                 ' N - reloop if neither pin set
 
                         andn    outa,spi_clkmask
@@ -1060,7 +921,7 @@ spi_entry
 
 ''
 '' Maximum data rate of 2Mb/s (256KB/s)
-'' 
+''
 '' right now, capable speed is between 1.94Mb/s and 2.16Mb/s
 '' which is between 248KB/s and 276KB/s. I would cap it
 '' at 2Mb/s because going any faster requires sharp timing
@@ -1087,11 +948,11 @@ spi_waitloop00
                         add     temp, #1
                         wrbyte  temp, buf_ind
                         jmp     #spi_waitloop
-                        
-                                    
-                                  
+
+
+
 i2c_entry
-                                   
+
 
 zero          long      0
 one           long      1
@@ -1119,8 +980,6 @@ spi_count     long      0
 
               FIT
 
-=======
->>>>>>> c3d35c3694c4cd1d5f15621f8055e9db76a368ca
 DAT PWMHandler
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
@@ -1283,135 +1142,9 @@ dutyTable0F     long      0
 dutyReg       long      0    ' Register that duty cycle gets read into
 counter       long      0    ' Counter for generating the address table
 pinTableBase  long      0    ' HUBRAM address of pin addresses
-buffer        long      0    ' Bitmask buffer    
+buffer        long      0    ' Bitmask buffer
                         FIT
 
-
-CON
-''
-'' FireCracker SPI reciever -
-''
-
-
-  spi_clk  = 18                 ' clock pin
-  spi_mosi = 19                 ' master out / slave in
-  spi_miso = 20                 ' master in / slave out
-  spi_cs   = 21                 ' chip select
-  i2c_sda  = 16                 ' I2C data pin
-  i2c_scl  = 17                 ' I2C clock pin
-
-DAT StartRecv
-
-                        org     0
-recv_entry
-                        or      dira,#(1<<0)
-                        or      outa,#(1<<0)
-                        mov     buf_addr,par
-                        mov     buf_ind, buf_addr
-                        add     buf_ind, #256
-                        add     buf_ind, #256
-                        add     buf_ind, #256
-                        mov     phsa,#0
-                        mov     phsb,#0
-                        mov     frqa,#1
-                        mov     frqb,#1
-                        mov     ctra,recv_spicntl
-                        mov     ctrb,recv_i2ccntl
-                        or      dira,spi_clkmask
-                        or      outa,spi_clkmask
-recv_entry00
-                        or      phsa, phsb              wz,nr ' ? either pin gets a positive edge
-              if_z      jmp     #recv_entry00                 ' N - reloop if neither pin set
-
-                        andn    outa,spi_clkmask
-                        cmp     ina, spi_mosimask       wz    ' ? SPI set
-              if_z      jmp     #spi_entry                    ' Y - go to SPI
-
-                        cmp     ina, i2c_sclmask              ' ? I2C set
-              if_z      jmp     #i2c_entry                    ' Y - go to I2C
-
-                        mov     dira, recv_errmask            ' move in error mask
-                        mov     outa, recv_errmask            ' drive all lines high
-                        cogid   zero
-                        cogstop zero                          ' kill service
-
-spi_entry
-                        or      dira, spi_misomask            ' configure pin(s) for output
-
-                        mov     frqa,#1
-                        mov     frqb,#1                       '
-                        mov     phsa,#0
-                        mov     phsb,#0
-                        mov     ctra,spi_clkcntl              ' wait for pins to both be low
-                        movs    ctra,#spi_clk
-                        movd    ctra,#spi_cs                  ' monitor cs and clk pins
-                        mov     ctrb,spi_datcntl
-                        movs    ctrb,#spi_mosi
-                        mov     spi_count, #8
-
-                        or      outa, spi_misomask
-                        waitpeq zero, spi_mosimask
-
-''
-'' Maximum data rate of 2Mb/s (256KB/s)
-''
-'' right now, capable speed is between 1.94Mb/s and 2.16Mb/s
-'' which is between 248KB/s and 276KB/s. I would cap it
-'' at 2Mb/s because going any faster requires sharp timing
-'' between the master and when this COG has HUB access
-'' which is a completely unreasonable thing to account for.
-''
-'' Those speeds is the max data rate range. This is a synchronous
-'' protocol, so going slower will work fine. Just don't go over
-'' 2Mb/s.
-''
-spi_waitloop
-                        tjz     phsa,#spi_waitloop            ' wait for both pins to be low
-spi_waitloop00
-                        shl     phsb,#1                       ' shift data in over
-                        mov     phsa,#0                       ' zero event
-                        waitpeq one, spi_clkmask              ' wait for raised clock
-                        djnz    spi_count, #spi_waitloop      ' reloop if we do not have 8 bits
-
-                        rdbyte  temp, buf_ind
-                        add     temp, buf_addr
-                        mov     spi_count, #8
-                        wrbyte  phsb, temp
-                        sub     temp, buf_addr
-                        add     temp, #1
-                        wrbyte  temp, buf_ind
-                        jmp     #spi_waitloop
-
-
-
-i2c_entry
-
-
-zero          long      0
-one           long      1
-
-recv_spicntl  long      %01010_000_00000000_000000_000_000000 | spi_mosi
-recv_i2ccntl  long      %01010_000_00000000_000000_000_000000 | i2c_scl
-recv_mask     long      spi_mosimask | i2c_sclmask
-recv_errmask  long      spi_misomask | i2c_sdamask
-
-spi_clkcntl   long      %10001_000_00000000_000000_000_000000
-spi_datcntl   long      %01010_000_00000000_000000_000_000000
-spi_clkmask   long      1 << spi_clk
-spi_mosimask  long      1 << spi_mosi
-spi_misomask  long      1 << spi_miso
-spi_csmask    long      1 << spi_cs
-
-i2c_sdamask   long      1 << i2c_sda
-i2c_sclmask   long      1 << i2c_scl
-spi_mode      long      0
-
-temp          res       1
-buf_addr      res       1
-buf_ind       res       1
-spi_count     res       1
-
-              FIT
 
 CON
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
