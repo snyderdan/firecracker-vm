@@ -173,9 +173,9 @@ VAR
 
   long BRKT_timings[BRKT_NUM_PINS*BRKT_TIMING_LEN] ' Space for pin timings
 
-  byte BRKT_buf_lock                          ' Store the buffer lock
+  byte BRKTA_buf_lock                          ' Store the buffer lock
 
-  byte BRKT_tim_lock                          ' Store the timing lock
+  byte BRKTA_tim_lock                          ' Store the timing lock
 
 PUB Start | n
 
@@ -196,13 +196,15 @@ PUB Start | n
   cognew(@fvm_entry, 0)                                 ' start new macro version
 
 
-  if ((BRKT_buf_lock := locknew) == -1 || (BRKT_tim_lock := locknew) == -1)
+  if ((BRKT_buf_lock := locknew) == -1)
     outa &= outa ' should actually flag error
+  if ((BRKT_tim_lock := locknew) == -1)
+    outa &= outa
   brkt_req_base := @BRKT_requests
   brkt_buf_base := @BRKT_bufs
-  brkt_buf_lock := @BRKT_buf_lock
+  brkt_buf_lock := @BRKTA_buf_lock
   brkt_tim_base := @BRKT_timings
-  brkt_tim_lock := @BRKT_tim_lock
+  brkt_tim_lock := @BRKTA_tim_lock
   cognew(@Bottlerocket, 0)
 
 PUB MacroManager | address, s, len1, len2, end
@@ -1156,11 +1158,11 @@ end_mask      long      %00000000000_111111111_000000000_00_0
 
 buf_len       word      480
 
-brkt_req_base res       1
-brkt_buf_base res       1
-brkt_tim_base res       1
-brkt_buf_lock res       1
-brkt_tim_lock res       1
+brkt_req_base long       1
+brkt_buf_base long       1
+brkt_tim_base long       1
+brkt_buf_lock long       1
+brkt_tim_lock long       1
 
 buf_cur       res       127
 req_cur       res       1
