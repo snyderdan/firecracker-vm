@@ -1398,11 +1398,11 @@ end_mask      long      %00000000000_111111111_000000000_00_0
 
 buf_len       word      480
 
-brkt_req_base long       1
-brkt_buf_base long       1
-brkt_tim_base long       1
-brkt_buf_lock long       1
-brkt_tim_lock long       1
+brkt_req_base long       0
+brkt_buf_base long       0
+brkt_tim_base long       0
+brkt_buf_lock long       0
+brkt_tim_lock long       0
 
 buf_cur       res       127
 req_cur       res       1
