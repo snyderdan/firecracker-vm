@@ -92,10 +92,8 @@
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
 CON
-
-  FVM_DEFAULT_WA_SIZE     = 8192   ' macro work area
                       
-  FVM_DEFAULT_NUM_MACROS  = 256  
+  FVM_DEFAULT_NUM_MACROS  = 256
   FVM_DEFAULT_STACK_SIZE  = 256
   FVM_DEFAULT_BUFFER_SIZE = 256
   FVM_DEFAULT_NUM_OUTPUTS = 16
@@ -1017,7 +1015,7 @@ hires
                         mov     pinTableBase,par             ' Move in the HUBRAM address of the pin values table
                         mov     counter,#16                  ' Counter used to generate the table of pin HUBRAM addresses
                         mov     dutyReg,#pinAddress04
-                        
+
 ' Initializes a table containing the HUBRAM address of every pin
 ' in order to avoid having to increment a reference address each
 ' time we have to access the table, thus increasing speed.
@@ -1295,4 +1293,3 @@ reg_c         res       1
 reg_d         res       1
 
               FIT
-
