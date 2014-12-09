@@ -1200,18 +1200,36 @@ copy_buf
                         djnz    reg_c, #:loop              wz ' Clears z flag if we jump back
                         add     reg_b, brkt_buf_base' reg_b now contains start address of copy
 get_buf
-                        lockset brkt_buf_lock             wc 'Get the lock for all of the buffers
-              if_c      jmp     #get_buf
+:get_lock               lockset brkt_buf_lock             wc 'Get the lock for all of the buffers
+              if_c      jmp     #:get_lock
+prep_regs
                         mov     reg_c, #buf_cur
-:loop
-                        movd    :read, reg_c
-                        nop
-'' read more than we need to for speed and laziness
-:read                   rdlong  0, reg_b
-                        add     reg_b, #4
+:loop '' read more than we need to for speed and laziness
+:overhead
+                        movd    #:read_0, reg_c
                         add     reg_c, #1
+                        movd    #:read_1, reg_c
+                        add     reg_c, #1
+                        movd    #:read_2, reg_c
+                        add     reg_c, #1
+                        movd    #:read_3, reg_c
+                        add     reg_c, #1
+:read_0                 rdlong  0, reg_b
+                        add     reg_b, #4
+                        djnz    reg_a, #:read_1
+                        jmp     #:rel_lock
+:read_1                 rdlong  0, reg_b
+                        add     reg_b, #4
+                        djnz    reg_a, #:read_2
+                        jmp     #:rel_lock
+:read_2                 rdlong  0, reg_b
+                        add     reg_b, #4
+                        djnz    reg_a, #:read_3
+                        jmp     #:rel_lock
+:read_3                 rdlong  0, reg_b
+                        add     reg_b, #4
                         djnz    reg_a, #:loop
-                        lockclr brkt_buf_lock ' Release it
+:rel_lock               lockclr brkt_buf_lock ' Release it
 get_tim
                         lockset brkt_tim_lock             wc
               if_c      jmp     #get_tim
