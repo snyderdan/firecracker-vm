@@ -94,7 +94,8 @@
 CON
 
   FVM_DEFAULT_WA_SIZE     = 8192   ' macro work area
-  FVM_DEFAULT_NUM_MACROS  = 256
+                      
+  FVM_DEFAULT_NUM_MACROS  = 256  
   FVM_DEFAULT_STACK_SIZE  = 256
   FVM_DEFAULT_BUFFER_SIZE = 256
   FVM_DEFAULT_NUM_OUTPUTS = 16
@@ -729,6 +730,17 @@ fvm_jmpr
                         jmp     #fvm_end_processing           ' leave
 
 fvm_defmc
+                        mov     G1, #2
+                        call    #fvm_getdata                  ' ensure we have length
+                        
+                        add     G0, #1
+                        rdbyte  G1, G0                        ' read first byte
+                        add     G1, #2                        ' include opcode and length
+                        call    #fvm_getdata                  ' ensure we have all bytes available
+                        add     count, G1                     ' account for bytes we are about to read
+                        sub     G1, #4                  wz,wc ' adjust to relative length
+              if_b      jmp     fvm_end_processing            ' leave if length is zero
+                        
 
 fvm_calmc
 
@@ -1004,8 +1016,8 @@ DAT PWMHandler
 hires
                         mov     pinTableBase,par             ' Move in the HUBRAM address of the pin values table
                         mov     counter,#16                  ' Counter used to generate the table of pin HUBRAM addresses
-                        mov     dutyReg,#pinAddress00
-
+                        mov     dutyReg,#pinAddress04
+                        
 ' Initializes a table containing the HUBRAM address of every pin
 ' in order to avoid having to increment a reference address each
 ' time we have to access the table, thus increasing speed.
@@ -1016,28 +1028,14 @@ setup
 tableEntry
                         add     0000,pinTableBase
                         djnz    counter, #setup
-
+                        
 dutyStart
-                        rdlong  dutyReg,pinAddress00         ' Read the value of the zero-th pin into the dutyReg
-                        add     dutyTable00,dutyReg       wc   ' Add to the accumulator
-              if_c      or      buffer,pinMask00             ' If a carry was generated, set the pin to high
-
-                        rdlong  dutyReg,pinAddress01         ' repeat this process, each time going to the next pin, and next
-                        add     dutyTable01,dutyReg       wc
-              if_c      or      buffer,pinMask01
-
-                        rdlong  dutyReg,pinAddress02         ' This goes on 16 times. Once per pin.
-                        add     dutyTable02,dutyReg       wc
-              if_c      or      buffer,pinMask02
-
-                        rdlong  dutyReg,pinAddress03
-                        add     dutyTable03,dutyReg       wc
-              if_c      or      buffer,pinMask03
-
-                        rdlong  dutyReg,pinAddress04
-                        add     dutyTable04,dutyReg       wc
-              if_c      or      buffer,pinMask04
-
+                        ' Only update 12V pins - 5V pins (0-3) are reserved for BRKT
+                        
+                        rdlong  dutyReg,pinAddress04          ' Read the value of the zero-th pin into the dutyReg
+                        add     dutyTable04,dutyReg       wc  ' Add to the accumulator 
+              if_c      or      buffer,pinMask04              ' If a carry was generated, set the pin to high 
+                                                              ' repeat this process, each time going to the next pin, and next 
                         rdlong  dutyReg,pinAddress05
                         add     dutyTable05,dutyReg       wc
               if_c      or      buffer,pinMask05
@@ -1088,10 +1086,6 @@ dutyStart
                         jmp     #dutyStart                      ' Go to next cycle
 
 ' Pin mask table used to set pins
-pinMask00     long      %0000_0000_0000_0000_0000_0000_0000_0001
-pinMask01     long      %0000_0000_0000_0000_0000_0000_0000_0010
-pinMask02     long      %0000_0000_0000_0000_0000_0000_0000_0100
-pinMask03     long      %0000_0000_0000_0000_0000_0000_0000_1000
 pinMask04     long      %0000_0000_0000_0000_0000_0000_0001_0000
 pinMask05     long      %0000_0000_0000_0000_0000_0000_0010_0000
 pinMask06     long      %0000_0000_0000_0000_0000_0000_0100_0000
@@ -1105,10 +1099,6 @@ pinMask0D     long      %0000_0000_0000_0000_0010_0000_0000_0000
 pinMask0E     long      %0000_0000_0000_0000_0100_0000_0000_0000
 pinMask0F     long      %0000_0000_0000_0000_1000_0000_0000_0000
 
-pinAddress00     long      0
-pinAddress01     long      4
-pinAddress02     long      8
-pinAddress03     long      12
 pinAddress04     long      16
 pinAddress05     long      20
 pinAddress06     long      24
@@ -1122,10 +1112,6 @@ pinAddress0D     long      52
 pinAddress0E     long      56
 pinAddress0F     long      60
 
-dutyTable00     long      0
-dutyTable01     long      0
-dutyTable02     long      0
-dutyTable03     long      0
 dutyTable04     long      0
 dutyTable05     long      0
 dutyTable06     long      0
