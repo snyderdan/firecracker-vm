@@ -83,11 +83,14 @@
 ''    - Write I2C com
 ''    - Finish writing the MM
 ''    - Fill in missing opcodes (pretty much everything macro related)
-''    - everything involving Bottle Rocket
-''    - everything involving Bottle Rocket -- Will
 ''    - correct macro processing to account for memory structure
 ''      with the new limits of approximately 160 LEDs and
 ''    - update communication docs
+''    - Testing
+''      - FVM
+''        - Everything
+''      - BRKT
+''        - Loop Aligned
 ''
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
@@ -730,7 +733,7 @@ fvm_jmpr
 fvm_defmc
                         mov     G1, #2
                         call    #fvm_getdata                  ' ensure we have length
-                        
+
                         add     G0, #1
                         rdbyte  G1, G0                        ' read first byte
                         add     G1, #2                        ' include opcode and length
@@ -738,7 +741,7 @@ fvm_defmc
                         add     count, G1                     ' account for bytes we are about to read
                         sub     G1, #4                  wz,wc ' adjust to relative length
               if_b      jmp     fvm_end_processing            ' leave if length is zero
-                        
+
 
 fvm_calmc
 
@@ -1015,7 +1018,7 @@ hires
                         mov     pinTableBase,par             ' Move in the HUBRAM address of the pin values table
                         mov     counter,#16                  ' Counter used to generate the table of pin HUBRAM addresses
                         mov     dutyReg,#pinAddress04
-                        
+
 ' Initializes a table containing the HUBRAM address of every pin
 ' in order to avoid having to increment a reference address each
 ' time we have to access the table, thus increasing speed.
@@ -1026,14 +1029,14 @@ setup
 tableEntry
                         add     0000,pinTableBase
                         djnz    counter, #setup
-                        
+
 dutyStart
                         ' Only update 12V pins - 5V pins (0-3) are reserved for BRKT
-                        
+
                         rdlong  dutyReg,pinAddress04          ' Read the value of the zero-th pin into the dutyReg
-                        add     dutyTable04,dutyReg       wc  ' Add to the accumulator 
-              if_c      or      buffer,pinMask04              ' If a carry was generated, set the pin to high 
-                                                              ' repeat this process, each time going to the next pin, and next 
+                        add     dutyTable04,dutyReg       wc  ' Add to the accumulator
+              if_c      or      buffer,pinMask04              ' If a carry was generated, set the pin to high
+                                                              ' repeat this process, each time going to the next pin, and next
                         rdlong  dutyReg,pinAddress05
                         add     dutyTable05,dutyReg       wc
               if_c      or      buffer,pinMask05
@@ -1134,13 +1137,12 @@ CON
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 '' Bottlerocket serial addressable LED driver
 ''
-'' Bottlerocket maintains four 512-byte buffers of data used to feed
+'' Bottlerocket maintains four 480-byte buffers of data used to feed
 '' one pin each. It runs on its own cog and consumes write requests
 '' consisting of a buffer number and a start and end index in that
 '' buffer.
 ''
-'' The buffers are locked while data is in flight, and will reject
-'' updates made until data write is completed.
+'' The buffers are locked while data is being copied to the local buffer
 ''
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
