@@ -1164,11 +1164,11 @@ wait_req
 copy_buf
                         mov     reg_b, req_cur ' store start index of copy
                         and     reg_b, start_mask
-                        shr     reg_b, #5
+                        shr     reg_b, #3
 
                         mov     reg_a, req_cur ' store length of copy
                         and     reg_a, end_mask
-                        shr     reg_a, #(5+9)
+                        shr     reg_a, #(3+9)
                         sub     reg_a, reg_b
                         add     reg_a, #1
                         mov     reg_d, reg_a ' Make a copy for later
@@ -1183,7 +1183,7 @@ copy_buf
                         shr     reg_c, #1                 wz
 :loop
               if_nz     add     reg_b, buf_len ' Z flag needed to prevent adding 512 on pin0
-                        djnz    reg_c, #:loop              wz ' Clears z flag if we jump back
+                        djnz    reg_c, #:loop             wz ' Clears z flag if we jump back
                         add     reg_b, brkt_buf_base' reg_b now contains start address of copy
 get_buf
 :get_lock               lockset brkt_buf_lock             wc 'Get the lock for all of the buffers
@@ -1196,23 +1196,11 @@ prep_regs
                         add     reg_c, #1
                         movd    #:read_1, reg_c
                         add     reg_c, #1
-                        movd    #:read_2, reg_c
-                        add     reg_c, #1
-                        movd    #:read_3, reg_c
-                        add     reg_c, #1
 :read_0                 rdlong  0, reg_b
                         add     reg_b, #4
                         djnz    reg_a, #:read_1
                         jmp     #:rel_lock
 :read_1                 rdlong  0, reg_b
-                        add     reg_b, #4
-                        djnz    reg_a, #:read_2
-                        jmp     #:rel_lock
-:read_2                 rdlong  0, reg_b
-                        add     reg_b, #4
-                        djnz    reg_a, #:read_3
-                        jmp     #:rel_lock
-:read_3                 rdlong  0, reg_b
                         add     reg_b, #4
                         djnz    reg_a, #:loop
 :rel_lock               lockclr brkt_buf_lock ' Release it
@@ -1223,7 +1211,7 @@ get_tim
                         and     reg_b, pin_mask           wz ' z flag will be written if not writing pin 0
                         shr     reg_b, #1
 :loop
-            if_nz       add     reg_a, #(5*4)
+            if_nz       add     reg_a, #(BRKT_TIMING_LEN*BRKT_NUM_PINS)
                         djnz    reg_b, #:loop
                         rdlong  t1h, reg_b
                         add     reg_b, #4
@@ -1295,3 +1283,4 @@ reg_c         res       1
 reg_d         res       1
 
               FIT
+
