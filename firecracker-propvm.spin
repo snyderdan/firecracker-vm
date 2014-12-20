@@ -877,6 +877,9 @@ CON
   spi_cs   = 21                 ' chip select
   i2c_sda  = 16                 ' I2C data pin
   i2c_scl  = 17                 ' I2C clock pin
+  i2c_addr = $11
+  i2c_10bit = %000011110
+  i2c_msbits = %000000111
 
 DAT StartRecv
                         org     0
@@ -897,15 +900,17 @@ i2c_start '' needs to be fixed to watch for edges
 i2c_addr_frame
                         mov     buf_local, #0
                         call    #i2c_frame
-                        cmp     buf_local, #%011110000    wz, wc ' check addressing type
-            if_nz_or_c  jmp     #i2c_check_addr              ' use 7 bit address only if
-                        and     buf_local, #%000000111       ' save lowest 3 bits
+                        ror     buf_local, #3
+                        cmp     buf_local, #i2c_10bit     wz ' check addressing type
+                        rol     buf_local, #3
+              if_nz     jmp     #i2c_check_addr              ' use 7 bit address only if highest 5 bits not match 11110
+                        and     buf_local, #i2c_msbits       ' save lowest 3 bits
                         call    #i2c_frame                   ' get another 8 bits
 i2c_check_addr
-                        cmp     buf_local, i2c_addr       wz, wc
+                        cmp     buf_local, i2c_addrmask   wz
               if_nz     jmp     #i2c_start                   ' VERY WRONG?
 i2c_check_rw
-                        test    buf_local, #1            wz ' Z is set for read
+                        test    buf_local, #1             wz ' Z is set for read
               if_nz     jmp     #i2c_read
 i2c_write
                         mov     buf_local, #0
@@ -923,7 +928,7 @@ i2c_read
                         andn    dira, i2c_mask               ' Allow bus to rise
                         mov     i2c_frame_ind, #8
                         rdbyte  buf_local, fvm_status_addr
-                        shl     buf_local, #24
+                        shl     buf_local, #(3*8)
 :bit_loop
                         waitpeq i2c_sclmask, i2c_sclmask     'wait for scl to fall FIX TO FIND EDGE
                         rol     buf_local, #1             wc
@@ -951,12 +956,15 @@ i2c_frame
                         or      dira, i2c_mask               ' Pull clock and data down THIS MAKES US A BUS ASSHOLE
 i2c_frame_ret           ret
 
+
+
+
 fvm_status_addr long    0
 
 
 recv_mask     long      i2c_mask
 
-i2c_addr      long      $11 << 1
+i2c_addrmask  long      i2c_addr << 1
 i2c_sdamask   long      1 << i2c_sda
 i2c_sclmask   long      1 << i2c_scl
 i2c_mask      long      i2c_sdamask | i2c_sclmask
