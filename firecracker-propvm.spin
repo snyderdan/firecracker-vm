@@ -1170,9 +1170,9 @@ prep_regs
                         mov     reg_c, #buf_cur
 :loop '' read more than we need to for speed and laziness
 :overhead
-                        movd    #:read_0, reg_c
+                        movd    :read_0, reg_c
                         add     reg_c, #1
-                        movd    #:read_1, reg_c
+                        movd    :read_1, reg_c
                         add     reg_c, #1
 :read_0                 rdlong  0, reg_b
                         add     reg_b, #4
