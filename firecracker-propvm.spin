@@ -167,8 +167,6 @@ VAR
 
   byte FVM_signal                             ' signal line
 
-  byte FVM_macro_space[FVM_DEFAULT_WA_SIZE]   ' memory allocated for macro(s) being executed
-
   long BRKT_requests[BRKT_NUM_PINS]           ' Space for write requests
 
   long BRKT_bufs[BRKT_NUM_PINS*BRKT_BUF_LEN/4]  ' Space for data buffers
@@ -181,9 +179,9 @@ VAR
 
 PUB Start | n
 
-  dira := $0000_FFFF | spi_misomask | i2c_sdamask       ' configure outputs for our purposes
-
-  cognew(@recv_entry, @FVM_buffer)
+  dira := $0000_FFFF     ' configure outputs for our purposes
+  buf_addr := @FVM_buffer
+  cognew(@recv_entry, 0)
 
   cognew(@hires, @FVM_PWM_table)
 
@@ -244,7 +242,7 @@ PUB MacroManager | address, s, len1, len2, end
 
       s    := @FVM_macros                               ' selected RAM address
 
-      end  := @FVM_macros + FVM_DEFAULT_WA_SIZE         ' end address
+      end  := @FVM_macros + 0-1                         ' end address ' What constant should be added here?
 
       len2 := word[s]                                   ' length of RAM block
 
