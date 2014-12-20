@@ -879,115 +879,95 @@ CON
   i2c_scl  = 17                 ' I2C clock pin
 
 DAT StartRecv
-
                         org     0
-recv_entry
-                        or      dira,#(1<<0)
-                        or      outa,#(1<<0)
-                        mov     buf_addr,par
-                        mov     buf_ind, buf_addr
-                        add     buf_ind, #256
-                        add     buf_ind, #256
-                        add     buf_ind, #256
-                        mov     phsa,#0
-                        mov     phsb,#0
-                        mov     frqa,#1
-                        mov     frqb,#1
-                        mov     ctra,recv_spicntl
-                        mov     ctrb,recv_i2ccntl
-                        or      dira,spi_clkmask
-                        or      outa,spi_clkmask
-recv_entry00
-                        or      phsa, phsb              wz,nr ' ? either pin gets a positive edge
-              if_z      jmp     #recv_entry00                 ' N - reloop if neither pin set
-
-                        andn    outa,spi_clkmask
-                        cmp     ina, spi_mosimask       wz    ' ? SPI set
-              if_z      jmp     #spi_entry                    ' Y - go to SPI
-
-                        cmp     ina, i2c_sclmask              ' ? I2C set
-              if_z      jmp     #i2c_entry                    ' Y - go to I2C
-
-                        mov     dira, recv_errmask            ' move in error mask
-                        mov     outa, recv_errmask            ' drive all lines high
-                        cogid   zero
-                        cogstop zero                          ' kill service
-
-spi_entry
-                        or      dira, spi_misomask            ' configure pin(s) for output
-
-                        mov     frqa,#1
-                        mov     frqb,#1                       '
-                        mov     phsa,#0
-                        mov     phsb,#0
-                        mov     ctra,spi_clkcntl              ' wait for pins to both be low
-                        movs    ctra,#spi_clk
-                        movd    ctra,#spi_cs                  ' monitor cs and clk pins
-                        mov     ctrb,spi_datcntl
-                        movs    ctrb,#spi_mosi
-                        mov     spi_count, #8
-
-                        or      outa, spi_misomask
-                        waitpeq zero, spi_mosimask
-
-''
-'' Maximum data rate of 2Mb/s (256KB/s)
-''
-'' right now, capable speed is between 1.94Mb/s and 2.16Mb/s
-'' which is between 248KB/s and 276KB/s. I would cap it
-'' at 2Mb/s because going any faster requires sharp timing
-'' between the master and when this COG has HUB access
-'' which is a completely unreasonable thing to account for.
-''
-'' Those speeds is the max data rate range. This is a synchronous
-'' protocol, so going slower will work fine. Just don't go over
-'' 2Mb/s.
-''
-spi_waitloop
-                        tjz     phsa,#spi_waitloop            ' wait for both pins to be low
-spi_waitloop00
-                        shl     phsb,#1                       ' shift data in over
-                        mov     phsa,#0                       ' zero event
-                        waitpeq one, spi_clkmask              ' wait for raised clock
-                        djnz    spi_count, #spi_waitloop      ' reloop if we do not have 8 bits
-
-                        rdbyte  temp, buf_ind
-                        add     temp, buf_addr
-                        mov     spi_count, #8
-                        wrbyte  phsb, temp
-                        sub     temp, buf_addr
-                        add     temp, #1
-                        wrbyte  temp, buf_ind
-                        jmp     #spi_waitloop
-
-
-
+recv_entry '' I don't like how this is done
+                        andn    dira, recv_mask ' Set pins to input for protection
 i2c_entry
+                        '' !!!!!!!!!!!!!!!!!!!!!!  SKETCHY STUFF BELOW
+                        '' Bit banging i2c is not fun. I think we can
+                        '' do it though. If we need to do any sort of
+                        '' clock stretching, this is going to get nasty.
+                        '' as it stands, this is gross
+                        ''Going to have to use counters as waitpeq doesn't tell me about edges
+                        andn    outa, i2c_mask ' set outputs to pull down when enabled
+i2c_start '' needs to be fixed to watch for edges
+                        andn    dira, i2c_mask               ' release scl and sda
+                        waitpeq i2c_startmask, i2c_mask      ' Wait for start
+                        waitpeq i2c_sclmask, #0              ' Wait for clock to fall
+i2c_addr_frame
+                        mov     buf_local, #0
+                        call    #i2c_frame
+                        cmp     buf_local, #%011110000    wz, wc ' check addressing type
+            if_nz_or_c  jmp     #i2c_check_addr              ' use 7 bit address only if
+                        and     buf_local, #%000000111       ' save lowest 3 bits
+                        call    #i2c_frame                   ' get another 8 bits
+i2c_check_addr
+                        cmp     buf_local, i2c_addr       wz, wc
+              if_nz     jmp     #i2c_start                   ' VERY WRONG?
+i2c_check_rw
+                        test    buf_local, #1            wz ' Z is set for read
+              if_nz     jmp     #i2c_read
+i2c_write
+                        mov     buf_local, #0
+                        call    #i2c_frame
+                        wrbyte  buf_local, buf_addr
+                        add     buf_addr, #1
+                        add     buf_ind, #1
+                        wrbyte  buf_ind, buf_ind_addr
+                        andn    dira, i2c_mask               ' let scl and sda rise, see what happens
+                        waitpeq i2c_sdamask, i2c_sdamask     ' wait for master to let sda rise
+                        test    ina, i2c_sclmask          wz ' If scl is high, we are at an end
+              if_z      jmp     #i2c_start                   ' Wait for another start
+                        jmp     #i2c_write                   ' Master has more data for us
+i2c_read
+                        andn    dira, i2c_mask               ' Allow bus to rise
+                        mov     i2c_frame_ind, #8
+                        rdbyte  buf_local, fvm_status_addr
+                        shl     buf_local, #24
+:bit_loop
+                        waitpeq i2c_sclmask, i2c_sclmask     'wait for scl to fall FIX TO FIND EDGE
+                        rol     buf_local, #1             wc
+              if_c      or      dira, i2c_sdamask
+              if_nc     andn    dira, i2c_sdamask
+                        djnz    i2c_frame_ind, #:bit_loop
+                        or      dira, i2c_sdamask            ' pull down for ack
+                        waitpeq i2c_sclmask, i2c_sclmask     ' wait for clock to rise
+                        waitpeq i2c_sclmask, #0              ' wait for clock to fall again
+                        andn    dira, i2c_mask               ' allow bus to rise
+                        waitpeq i2c_sdamask, i2c_sdamask     ' wait for master to let sda rise
+                        test    ina, i2c_sclmask          wz ' If scl is high, we are at an end
+              if_z      jmp     #i2c_start                   ' Wait for another start
+                        jmp     #i2c_read                    ' Master wants us to tell more of the same
+
+i2c_frame
+                        mov     i2c_frame_ind, #8
+                        andn    dira, i2c_mask               ' let scl and sda rise
+:bit_loop
+                        waitpeq i2c_scl, i2c_sclmask         ' Wait for clock to rise
+                        test    ina, i2c_sdamask          wz ' Check for high or low
+              if_z      add     buf_local, #1
+                        shl     buf_local, #1
+                        djnz    i2c_frame_ind, #:bit_loop
+                        or      dira, i2c_mask               ' Pull clock and data down THIS MAKES US A BUS ASSHOLE
+i2c_frame_ret           ret
+
+fvm_status_addr long    0
 
 
-zero          long      0
-one           long      1
+recv_mask     long      i2c_mask
 
-recv_spicntl  long      %01010_000_00000000_000000_000_000000 | spi_mosi
-recv_i2ccntl  long      %01010_000_00000000_000000_000_000000 | i2c_scl
-recv_mask     long      spi_mosimask | i2c_sclmask
-recv_errmask  long      spi_misomask | i2c_sdamask
-
-spi_clkcntl   long      %10001_000_00000000_000000_000_000000
-spi_datcntl   long      %01010_000_00000000_000000_000_000000
-spi_clkmask   long      1 << spi_clk
-spi_mosimask  long      1 << spi_mosi
-spi_misomask  long      1 << spi_miso
-spi_csmask    long      1 << spi_cs
-
+i2c_addr      long      $11 << 1
 i2c_sdamask   long      1 << i2c_sda
 i2c_sclmask   long      1 << i2c_scl
-spi_mode      long      0
+i2c_mask      long      i2c_sdamask | i2c_sclmask
+i2c_startmask long      !i2c_sdamask | i2c_sclmask
+i2c_frame_ind long      0  ' index into current i2c frame
 
-temp          long      0
-buf_addr      long      0
-buf_ind       long      0
-spi_count     long      0
+
+buf_local     long      0  ' local scratch buffer
+buf_addr      long      0  ' the next address in main ram we plan on writing to
+buf_ind       long      0  ' how far we are into the buffer
+buf_ind_addr  long      0  ' the address of the copy of buf_ind in main ram
 
               FIT
 
