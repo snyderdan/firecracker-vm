@@ -957,8 +957,7 @@ i2c_frame
                         mov     i2c_frame_ind, #8
                         movi    ctrb, ctr_posedge
                         andn    dira, i2c_mask               ' let scl and sda rise
-:bit_loop
-                        mov     phsb, #0
+:bit_loop               mov     phsb, #0
 :scl_rise               tjz     phsb, #:scl_rise
                         test    ina, i2c_sdamask          wz ' Check for high or low
               if_nz     add     buf_local, #1
