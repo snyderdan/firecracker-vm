@@ -870,6 +870,8 @@ CON
 '' FireCracker SPI reciever -
 ''
 
+  ctr_posedge = %01010
+  ctr_negedge = %01110
 
   spi_clk  = 18                 ' clock pin
   spi_mosi = 19                 ' master out / slave in
@@ -884,19 +886,31 @@ CON
 DAT StartRecv
                         org     0
 recv_entry '' I don't like how this is done
-                        andn    dira, recv_mask ' Set pins to input for protection
+                        andn    dira, recv_mask ' Set pins to input
+detect_protocol
 i2c_entry
                         '' !!!!!!!!!!!!!!!!!!!!!!  SKETCHY STUFF BELOW
                         '' Bit banging i2c is not fun. I think we can
                         '' do it though. If we need to do any sort of
                         '' clock stretching, this is going to get nasty.
                         '' as it stands, this is gross
-                        ''Going to have to use counters as waitpeq doesn't tell me about edges
                         andn    outa, i2c_mask ' set outputs to pull down when enabled
+                        movs    ctra, i2c_sda  ' set ctra to monitor sda
+                        movs    ctrb, i2c_scl  ' set ctrb to monitor scl
+                        mov     frqa, #1
+                        mov     frqb, #1
 i2c_start '' needs to be fixed to watch for edges
+                        movi    ctra, ctr_negedge
+                        movi    ctrb, ctr_negedge
                         andn    dira, i2c_mask               ' release scl and sda
-                        waitpeq i2c_startmask, i2c_mask      ' Wait for start
-                        waitpeq i2c_sclmask, #0              ' Wait for clock to fall
+:zero_ctr
+                        waitpeq i2c_mask, i2c_mask           ' wait for both pins to rise
+                        mov     phsa, #0
+                        mov     phsb, #0
+:sda_wait               tjz     phsa, #:sda_wait             ' Wait for sda to fall
+                        test    ina, i2c_sclmask          wz ' scl should still be high
+              if_z      jmp     #:zero_ctr                   ' If it's not, bail
+:scl_wait               tjz     phsb, #:scl_wait             ' Wait for scl to fall
 i2c_addr_frame
                         mov     buf_local, #0
                         call    #i2c_frame
@@ -907,54 +921,68 @@ i2c_addr_frame
                         and     buf_local, #i2c_msbits       ' save lowest 3 bits
                         call    #i2c_frame                   ' get another 8 bits
 i2c_check_addr
-                        cmp     buf_local, i2c_addrmask   wz
-              if_nz     jmp     #i2c_start                   ' VERY WRONG?
+                        cmp     buf_local, i2c_addrmask   wz ' check if address matches
+              if_nz     andn    outa, i2c_sdamask            ' Let sda rise(NACK) if master is not trying to talk to us
+              if_nz     jmp     #i2c_start                   ' If master not talking to us, wait for another start
+                        call    #i2c_frame_end
 i2c_check_rw
-                        test    buf_local, #1             wz ' Z is set for read
+                        test    buf_local, #1             wz ' Z is set for write
               if_nz     jmp     #i2c_read
 i2c_write
                         mov     buf_local, #0
-                        call    #i2c_frame
-                        wrbyte  buf_local, buf_addr
+                        call    #i2c_frame                   ' Grab next byte
+                        wrbyte  buf_local, buf_addr          ' write it to main memory
                         add     buf_addr, #1
                         add     buf_ind, #1
-                        wrbyte  buf_ind, buf_ind_addr
-                        andn    dira, i2c_mask               ' let scl and sda rise, see what happens
-                        waitpeq i2c_sdamask, i2c_sdamask     ' wait for master to let sda rise
-                        test    ina, i2c_sclmask          wz ' If scl is high, we are at an end
-              if_z      jmp     #i2c_start                   ' Wait for another start
-                        jmp     #i2c_write                   ' Master has more data for us
+                        wrbyte  buf_ind, buf_ind_addr        ' write the index we last wrote to
+                        or      dira, i2c_sdamask            ' ACK the transfer
+                        call    #i2c_frame_end               ' Deal with the frame end
+                        jmp     #i2c_write                   ' If frame end did not jump, more data
 i2c_read
-                        andn    dira, i2c_mask               ' Allow bus to rise
                         mov     i2c_frame_ind, #8
+                        movi    ctrb, ctr_negedge
                         rdbyte  buf_local, fvm_status_addr
                         shl     buf_local, #(3*8)
 :bit_loop
-                        waitpeq i2c_sclmask, i2c_sclmask     'wait for scl to fall FIX TO FIND EDGE
                         rol     buf_local, #1             wc
               if_c      or      dira, i2c_sdamask
               if_nc     andn    dira, i2c_sdamask
+                        mov     phsb, #0
+:scl_fall               tjz     phsb, #:scl_fall     'wait for scl to fall
                         djnz    i2c_frame_ind, #:bit_loop
                         or      dira, i2c_sdamask            ' pull down for ack
-                        waitpeq i2c_sclmask, i2c_sclmask     ' wait for clock to rise
-                        waitpeq i2c_sclmask, #0              ' wait for clock to fall again
-                        andn    dira, i2c_mask               ' allow bus to rise
-                        waitpeq i2c_sdamask, i2c_sdamask     ' wait for master to let sda rise
-                        test    ina, i2c_sclmask          wz ' If scl is high, we are at an end
-              if_z      jmp     #i2c_start                   ' Wait for another start
+                        call    #i2c_frame_end
                         jmp     #i2c_read                    ' Master wants us to tell more of the same
-
 i2c_frame
                         mov     i2c_frame_ind, #8
+                        movi    ctrb, ctr_posedge
                         andn    dira, i2c_mask               ' let scl and sda rise
 :bit_loop
-                        waitpeq i2c_scl, i2c_sclmask         ' Wait for clock to rise
+                        mov     phsb, #0
+:scl_rise               tjz     phsb, #:scl_rise
                         test    ina, i2c_sdamask          wz ' Check for high or low
-              if_z      add     buf_local, #1
+              if_nz     add     buf_local, #1
                         shl     buf_local, #1
                         djnz    i2c_frame_ind, #:bit_loop
-                        or      dira, i2c_mask               ' Pull clock and data down THIS MAKES US A BUS ASSHOLE
+                        or      dira, i2c_mask               ' Pull clock and data down
 i2c_frame_ret           ret
+
+i2c_frame_end
+                        movi    ctrb, ctr_negedge
+                        mov     phsb, #0
+                        andn    outa, i2c_sclmask            ' allow clock to rise
+:scl_fall               tjz     phsb, #:scl_fall             ' Wait for scl to fall
+                        andn    outa, i2c_mask               ' Allow all pins to rise
+                        movi    ctrb, ctr_posedge            ' Care if clock rises , indicates either end or repeat start
+                        mov     phsb, #0
+                        movi    ctra, ctr_negedge            ' Care if data falls, start of next frame
+                        mov     phsa, #0
+                        waitpeq i2c_sdamask, i2c_sdamask     ' sda will always rise after a frame
+:scl_rise               tjz     phsb, #:sda_fall             ' Check if clock has already risen
+                        jmp     #i2c_start                   ' If it did, start looking for another start
+:sda_fall               tjnz    phsa, #i2c_frame_end_ret     ' If sda falls, master is starting next frame
+                        jmp     #:scl_rise
+i2c_frame_end_ret       ret
 
 
 
