@@ -1205,14 +1205,14 @@ get_buf
               if_c      jmp     #:get_lock
 :loop '' This number of unrolls gives us 1/2 efficiency on io access. See spreadsheet
 :overhead
-                        cmp     reg_b, reg_e              wc, wz
-              if_lt     add     reg_b, brkt_bytes_read
-                        movd    :read_0, reg_c
-                        sub     reg_c, #1
-:read_0                 rdlong  0-0, reg_b
-                        sub     reg_b, #4
-                        djnz    reg_a, #:loop
-:rel_lock               lockclr brkt_buf_lock ' Release it
+                        cmp     reg_b, reg_e              wc, wz ' Check if we are trying to read from below our buffer
+              if_b      add     reg_b, brkt_bytes_read           ' If so, start reading from the end
+                        movd    :read_0, reg_c                   ' Prep the rd with the destination
+                        sub     reg_c, #1                        ' decrement target address by 1
+:read_0                 rdlong  0-0, reg_b                       ' grab long from hubram
+                        sub     reg_b, #4                        ' decrement source address by 4
+                        djnz    reg_a, #:loop                    ' loop if we need more longs
+:rel_lock               lockclr brkt_buf_lock                    ' Release it
 get_tim
                         lockset brkt_tim_lock             wc
               if_c      jmp     #get_tim
