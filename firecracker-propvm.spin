@@ -1164,7 +1164,7 @@ DAT Bottlerocket
                         org       0
 brkt_00
 wait_req
-'' assume long writes are atomic so I can just read violently
+'' long writes are atomic so I can just read violently
                         mov     reg_a, brkt_req_base
                         mov     reg_b, #3 '' need to find a way to not prefer first request
 :loop
@@ -1197,23 +1197,22 @@ copy_buf
 :loop
               if_nz     add     reg_b, buf_len ' Z flag needed to prevent adding 512 on pin0
                         djnz    reg_c, #:loop             wz ' Clears z flag if we jump back
-                        add     reg_b, brkt_buf_base' reg_b now contains start address of copy
+                        add     reg_b, brkt_buf_base         ' reg_b now contains start address of copy
 get_buf
 :get_lock               lockset brkt_buf_lock             wc 'Get the lock for all of the buffers
               if_c      jmp     #:get_lock
-prep_regs
                         mov     reg_c, #buf_cur
-:loop '' read more than we need to for speed and laziness
+:loop '' This number of unrolls gives us 2/3 efficiency on io access. See spreadsheet
 :overhead
                         movd    :read_0, reg_c
                         add     reg_c, #1
                         movd    :read_1, reg_c
                         add     reg_c, #1
-:read_0                 rdlong  0, reg_b
+:read_0                 rdlong  0-0, reg_b
                         add     reg_b, #4
                         djnz    reg_a, #:read_1
                         jmp     #:rel_lock
-:read_1                 rdlong  0, reg_b
+:read_1                 rdlong  0-0, reg_b
                         add     reg_b, #4
                         djnz    reg_a, #:loop
 :rel_lock               lockclr brkt_buf_lock ' Release it
@@ -1225,7 +1224,7 @@ get_tim
                         shr     reg_b, #1
 :loop
             if_nz       add     reg_a, #(BRKT_TIMING_LEN*BRKT_NUM_PINS)
-                        djnz    reg_b, #:loop
+                        djnz    reg_b, #:loop             wz
                         rdlong  t1h, reg_b
                         add     reg_b, #4
                         rdlong  t1l, reg_b
@@ -1248,11 +1247,13 @@ write_buf
                         mov     reg_a, buf_cur  ' Prep registers
                         '' Need to set C in a less shitty way
                         shr     use_mask, #1              wc, nr
-:loop
+                        andn    outa, reg_b                  ' Set output low
+                        or      dira, reg_b                  ' Toggle output on
+:loop '' c flag is set at start of first iteration, blank otherwise
               if_nc     test    reg_d, #31                wz ' Check if we need another long and are not on the first iteration
-              if_z      movs    :read_next,  reg_c           ' If we need another long, prep to copy it from our buffer
+            if_z_and_nc movs    :read_next,  reg_c           ' If we need another long, prep to copy it from our buffer
                         shr     reg_a, #1                 wc ' Check if we have a 1 or a zero bit
-:read_next    if_z      mov     reg_a, 0                     ' Copy the next long from our buffer
+:read_next    if_z      mov     reg_a, #0                    ' Copy the next long from our buffer
               if_z      add     reg_c, #1                    ' Increment our pointer into the buffer
               if_c      mov     wait_until, t1h              '
               if_nc     mov     wait_until, t0h
@@ -1272,7 +1273,9 @@ pin_mask      long      %00000000000_000000000_000000000_11_0
 start_mask    long      %00000000000_000000000_111111111_00_0
 end_mask      long      %00000000000_111111111_000000000_00_0
 
-buf_len       word      480
+brkt_bytes_read       long      480
+brkt_longs_read       long      BRKT_BUF_LEN/4
+brkt_bits_write       long      BRKT_BUF_LEN*8
 
 brkt_req_base long       0
 brkt_buf_base long       0
