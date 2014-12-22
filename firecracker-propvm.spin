@@ -1199,12 +1199,11 @@ copy_buf
                         mov     reg_e, reg_b                 ' reg_e now contains base address of this buffer in hubram
                         add     reg_b, reg_d                 ' reg_b now contains last index we want to copy from
                         mov     reg_c, #buf_cur              ' reg_c now contains base address of buffer in cogram
-
                         add     reg_c, reg_a                 ' reg_c now contains last address of buffer in cogram
 get_buf
 :get_lock               lockset brkt_buf_lock             wc 'Get the lock for all of the buffers
               if_c      jmp     #:get_lock
-:loop '' This number of unrolls gives us 2/3 efficiency on io access. See spreadsheet
+:loop '' This number of unrolls gives us 1/2 efficiency on io access. See spreadsheet
 :overhead
                         cmp     reg_b, reg_e              wc, wz
               if_lt     add     reg_b, brkt_bytes_read
@@ -1233,37 +1232,44 @@ get_tim
                         add     reg_b, #4
                         rdlong  tReset, reg_b
 write_buf
-                        shl     reg_d, #3                     ' multiply by 8 to get in # bits to send
-                        mov     reg_a, req_cur
-                        and     reg_a, pin_mask
-                        shr     reg_a, #1
-                        add     reg_a, #BRKT_BASE_PIN
+                        shl     reg_d, #3                       ' multiply by 8 to get in # bits to send
+                        mov     reg_e, reg_d                    ' reg_e contains number of bits to send
+                        sub     reg_e, #32                      ' reg_e will tell us to refresh data after sending 32 bits
+                        mov     reg_b, req_cur                  '
+                        and     reg_b, start_mask               '
+                        shr     reg_b, #(1+2)                   '
+                        and     reg_b, #3                 wz    ' reg_b contains # bytes garbage
+                        mov     reg_c, reg_b                    ' reg_c contains # bytes garbage
+                        shl     reg_c, #3                       ' reg_c contains # bits garbage
+                        add     reg_e, reg_c                    ' pretend to have sent our garbage
+:discard_garbage        shl     buf_cur, #8                     ' shift garbage bytes out from buf_cur
+                        djnz    reg_b, #:discard_garbage
+                        mov     reg_a, req_cur                  ' Find which pin to output on
+                        and     reg_a, pin_mask                 '
+                        shr     reg_a, #1                       '
+                        add     reg_a, #BRKT_BASE_PIN           '
                         mov     reg_b, #1
-                        shr     reg_b, reg_a
-                        or      dira, reg_b ' Toggle output on
-                        andn    outa, reg_b ' Set output low
-                        mov     reg_c, #buf_cur ' Prep registers
-                        mov     reg_a, buf_cur  ' Prep registers
-                        '' Need to set C in a less shitty way
-                        shr     use_mask, #1              wc, nr
-                        andn    outa, reg_b                  ' Set output low
-                        or      dira, reg_b                  ' Toggle output on
-:loop '' c flag is set at start of first iteration, blank otherwise
-              if_nc     test    reg_d, #31                wz ' Check if we need another long and are not on the first iteration
-            if_z_and_nc movs    :read_next,  reg_c           ' If we need another long, prep to copy it from our buffer
-                        shl     reg_a, #1                 wc ' Check if we have a 1 or a zero bit
-:read_next    if_z      mov     reg_a, #0-0                  ' Copy the next long from our buffer
-              if_z      add     reg_c, #1                    ' Increment our pointer into the buffer
-              if_c      mov     wait_until, t1h              '
-              if_nc     mov     wait_until, t0h
-                        or      outa, reg_b
-              if_c      waitcnt wait_until, t1l
-              if_nc     waitcnt wait_until, t0l
-                        andn    outa, reg_b
-                        waitcnt wait_until, #0
-                        djnz    reg_d, #:loop             wz, wc
-                        add     wait_until, tReset
-                        waitcnt wait_until, #0
+                        shr     reg_b, reg_a                    ' reg_b now contains pin mask
+                        andn    outa, reg_b                     ' Set output low
+                        or      dira, reg_b                     ' Toggle pin to output
+                        mov     reg_c, #buf_cur                 ' Prep registers
+                        mov     reg_a, buf_cur                  ' Prep registers
+:bit_loop
+                        cmp     reg_e, reg_d              wz    ' reg_e = index to get next long at
+              if_z      movs    :read_next, reg_c               ' Tell our shift to use the next long
+              if_z      add     reg_c, #1                       ' Increment our pointer into the buffer
+              if_z      sub     reg_e, #32                      ' refresh data in 32 bits
+:read_next              shl     reg_a, #1                 wc    ' Check if we have a 1 or a zero bit
+                        mov     wait_until, cnt                 ' prepare wait register
+              if_c      add     wait_until, t1h                 ' prep to wait for t1h if shifted out 1
+              if_nc     add     wait_until, t0h                 ' prep wait for t0h if shifted out 0
+                        or      outa, reg_b                     ' output high
+              if_c      waitcnt wait_until, t1l                 ' wait for t1h, prep to wait for t1l
+              if_nc     waitcnt wait_until, t0l                 ' wait for t0h, prep to wait for t0l
+                        andn    outa, reg_b                     ' output low
+                        waitcnt wait_until, tReset              ' wait for low time, prep for reset time if needed
+                        djnz    reg_d, #:bit_loop               ' check if we've written all of our bits
+                        waitcnt wait_until, #0                  ' wait for reset time
 write_done
                         jmp     wait_req
 
