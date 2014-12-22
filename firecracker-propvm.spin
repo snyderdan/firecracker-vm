@@ -1175,45 +1175,43 @@ wait_req
                         djnz    reg_b, #:loop
                         jmp     #wait_req
 copy_buf
-                        mov     reg_b, req_cur ' store start index of copy
+                        mov     reg_b, req_cur                ' store start index of copy
                         and     reg_b, start_mask
-                        shr     reg_b, #3
-
-                        mov     reg_a, req_cur ' store length of copy
+                        shr     reg_b, #(1+2)
+                        mov     reg_a, req_cur                ' store end index of copy
                         and     reg_a, end_mask
-                        shr     reg_a, #(3+9)
-                        sub     reg_a, reg_b
+                        shr     reg_a, #(1+2+9)
                         add     reg_a, #1
-                        mov     reg_d, reg_a ' Make a copy for later
+:find_length            cmpsub  reg_a, reg_b              wc
+              if_nc     add     reg_a, brkt_bytes_read
+              if_nc     jmp     #:find_length
+                        mov     reg_d, reg_a                  ' Make a copy for determining # bits and end index
                         test    reg_a, #3                 wz  ' check if we're going to need to round up
-                        shr     reg_a, #2 ' divide by 4
-              if_nz     add     reg_a, #1 ' round up so we don't miss
-
-                        shl     reg_d, #3 ' multiply by 8 to get in # bits to send
-
-                        mov     reg_c, req_cur ' store pin #
+                        shr     reg_a, #2                     ' divide by 4
+              if_nz     add     reg_a, #1                     ' round up so we don't miss the last few bytes
+                        mov     reg_c, req_cur                ' Calculate start address of copy
                         and     reg_c, pin_mask
                         shr     reg_c, #1                 wz
 :loop
-              if_nz     add     reg_b, buf_len ' Z flag needed to prevent adding 512 on pin0
+              if_nz     add     reg_b, brkt_bytes_read       ' Z flag needed to prevent adding 512 on pin0
                         djnz    reg_c, #:loop             wz ' Clears z flag if we jump back
-                        add     reg_b, brkt_buf_base         ' reg_b now contains start address of copy
+                        add     reg_b, brkt_buf_base         ' reg_b now contains base address of this buffer in hubram
+                        mov     reg_e, reg_b                 ' reg_e now contains base address of this buffer in hubram
+                        add     reg_b, reg_d                 ' reg_b now contains last index we want to copy from
+                        mov     reg_c, #buf_cur              ' reg_c now contains base address of buffer in cogram
+
+                        add     reg_c, reg_a                 ' reg_c now contains last address of buffer in cogram
 get_buf
 :get_lock               lockset brkt_buf_lock             wc 'Get the lock for all of the buffers
               if_c      jmp     #:get_lock
-                        mov     reg_c, #buf_cur
 :loop '' This number of unrolls gives us 2/3 efficiency on io access. See spreadsheet
 :overhead
+                        cmp     reg_b, reg_e              wc, wz
+              if_lt     add     reg_b, brkt_bytes_read
                         movd    :read_0, reg_c
-                        add     reg_c, #1
-                        movd    :read_1, reg_c
-                        add     reg_c, #1
+                        sub     reg_c, #1
 :read_0                 rdlong  0-0, reg_b
-                        add     reg_b, #4
-                        djnz    reg_a, #:read_1
-                        jmp     #:rel_lock
-:read_1                 rdlong  0-0, reg_b
-                        add     reg_b, #4
+                        sub     reg_b, #4
                         djnz    reg_a, #:loop
 :rel_lock               lockclr brkt_buf_lock ' Release it
 get_tim
@@ -1235,6 +1233,7 @@ get_tim
                         add     reg_b, #4
                         rdlong  tReset, reg_b
 write_buf
+                        shl     reg_d, #3                     ' multiply by 8 to get in # bits to send
                         mov     reg_a, req_cur
                         and     reg_a, pin_mask
                         shr     reg_a, #1
@@ -1252,8 +1251,8 @@ write_buf
 :loop '' c flag is set at start of first iteration, blank otherwise
               if_nc     test    reg_d, #31                wz ' Check if we need another long and are not on the first iteration
             if_z_and_nc movs    :read_next,  reg_c           ' If we need another long, prep to copy it from our buffer
-                        shr     reg_a, #1                 wc ' Check if we have a 1 or a zero bit
-:read_next    if_z      mov     reg_a, #0                    ' Copy the next long from our buffer
+                        shl     reg_a, #1                 wc ' Check if we have a 1 or a zero bit
+:read_next    if_z      mov     reg_a, #0-0                  ' Copy the next long from our buffer
               if_z      add     reg_c, #1                    ' Increment our pointer into the buffer
               if_c      mov     wait_until, t1h              '
               if_nc     mov     wait_until, t0h
@@ -1273,9 +1272,7 @@ pin_mask      long      %00000000000_000000000_000000000_11_0
 start_mask    long      %00000000000_000000000_111111111_00_0
 end_mask      long      %00000000000_111111111_000000000_00_0
 
-brkt_bytes_read       long      480
-brkt_longs_read       long      BRKT_BUF_LEN/4
-brkt_bits_write       long      BRKT_BUF_LEN*8
+brkt_bytes_read       long      BRKT_BUF_LEN
 
 brkt_req_base long       0
 brkt_buf_base long       0
@@ -1283,7 +1280,7 @@ brkt_tim_base long       0
 brkt_buf_lock long       0
 brkt_tim_lock long       0
 
-buf_cur       res       127
+buf_cur       res       BRKT_BUF_LEN/4
 req_cur       res       1
 
 wait_until    res       1
@@ -1297,6 +1294,6 @@ reg_a         res       1
 reg_b         res       1
 reg_c         res       1
 reg_d         res       1
-
+reg_e         res       1
               FIT
 
