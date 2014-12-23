@@ -1173,62 +1173,63 @@ wait_req
                         djnz    reg_b, #:loop
                         jmp     #wait_req
 copy_buf
-                        mov     reg_b, req_cur                   ' store start index of copy
+                        mov     reg_b, req_cur                  ' store start index of copy
                         and     reg_b, start_mask
                         shr     reg_b, #(1+2)
-                        mov     reg_a, req_cur                   ' store end index of copy
+                        mov     reg_a, req_cur                  ' store end index of copy
                         and     reg_a, end_mask
                         shr     reg_a, #(1+2+9)
                         add     reg_a, #1
 :find_length            cmpsub  reg_a, reg_b              wc
               if_nc     add     reg_a, brkt_bytes_read
               if_nc     jmp     #:find_length
-                        mov     reg_d, reg_a                     ' Make a copy for determining # bits and end index
-                        test    reg_a, #3                 wz     ' check if we're going to need to round up
-                        shr     reg_a, #2                        ' divide by 4
-              if_nz     add     reg_a, #1                        ' round up so we don't miss the last few bytes
-                        mov     reg_c, req_cur                   ' Calculate start address of copy
+                        mov     reg_d, reg_a                    ' Make a copy for determining # bits and end index
+                        test    reg_a, #3                 wz    ' check if we're going to need to round up
+                        shr     reg_a, #2                       ' divide by 4
+              if_nz     add     reg_a, #1                       ' round up so we don't miss the last few bytes
+                        mov     reg_c, req_cur                  ' Calculate start address of copy
                         and     reg_c, pin_mask
                         shr     reg_c, #1                 wz
 :loop
-              if_nz     add     reg_b, brkt_bytes_read           ' Z flag needed to prevent adding 512 on pin0
-                        djnz    reg_c, #:loop             wz     ' Clears z flag if we jump back
-                        add     reg_b, brkt_buf_base             ' reg_b now contains base address of this buffer in hubram
-                        mov     reg_e, reg_b                     ' reg_e now contains base address of this buffer in hubram
-                        add     reg_b, reg_d                     ' reg_b now contains last index we want to copy from
-                        mov     reg_c, #buf_cur                  ' reg_c now contains base address of buffer in cogram
-                        add     reg_c, reg_a                     ' reg_c now contains last address of buffer in cogram
+              if_nz     add     reg_b, brkt_bytes_read          ' Z flag needed to prevent adding 512 on pin0
+                        djnz    reg_c, #:loop             wz    ' Clears z flag if we jump back
+                        add     reg_b, brkt_buf_base            ' reg_b now contains base address of this buffer in hubram
+                        mov     reg_e, reg_b                    ' reg_e now contains base address of this buffer in hubram
+                        add     reg_b, reg_d                    ' reg_b now contains last index we want to copy from
+                        mov     reg_c, #buf_cur                 ' reg_c now contains base address of buffer in cogram
+                        add     reg_c, reg_a                    ' reg_c now contains last address of buffer in cogram
 get_buf
-:get_lock               lockset brkt_buf_lock             wc     ' Get the lock for all of the buffers
+:get_lock               lockset brkt_buf_lock             wc    ' Get the lock for all of the buffers
               if_c      jmp     #:get_lock
 :loop '' This number of unrolls gives us 1/2 efficiency on io access. See spreadsheet
 :overhead
-                        cmp     reg_b, reg_e              wc, wz ' Check if we are trying to read from below our buffer
-              if_b      add     reg_b, brkt_bytes_read           ' If so, start reading from the end
-                        movd    :read_0, reg_c                   ' Prep the rd with the destination
-                        sub     reg_c, #1                        ' decrement target address by 1
-:read_0                 rdlong  0-0, reg_b                       ' grab long from hubram
-                        sub     reg_b, #4                        ' decrement source address by 4
-                        djnz    reg_a, #:loop                    ' loop if we need more longs
-:rel_lock               lockclr brkt_buf_lock                    ' Release it
+                        cmp     reg_b, reg_e              wc, wz' Check if we are trying to read from below our buffer
+              if_b      add     reg_b, brkt_bytes_read          ' If so, start reading from the end
+                        movd    :read_0, reg_c                  ' Prep the rd with the destination
+                        sub     reg_c, #1                       ' decrement target address by 1
+:read_0                 rdlong  0-0, reg_b                      ' grab long from hubram
+                        sub     reg_b, #4                       ' decrement source address by 4
+                        djnz    reg_a, #:loop                   ' loop if we need more longs
+:rel_lock               lockclr brkt_buf_lock                   ' Release it
 get_tim
-                        lockset brkt_tim_lock             wc
+                        lockset brkt_tim_lock             wc    ' Get lock on timings
               if_c      jmp     #get_tim
-                        mov     reg_a, req_cur
-                        and     reg_b, pin_mask           wz ' z flag will be written if not writing pin 0
+                        mov     reg_a, brkt_tim_base            ' reg_a now contains address of timing[0]
+                        mov     reg_b, req_cur
+                        and     reg_b, pin_mask           wz    ' z flag will be set if not writing pin 0
                         shr     reg_b, #1
 :loop
-            if_nz       add     reg_a, #(BRKT_TIMING_LEN*BRKT_NUM_PINS)
+            if_nz       add     reg_a, #(BRKT_TIMING_LEN)       ' reg_a will contain address of correct timing at end of loop
                         djnz    reg_b, #:loop             wz
-                        rdlong  t1h, reg_b
-                        add     reg_b, #4
-                        rdlong  t1l, reg_b
-                        add     reg_b, #4
-                        rdlong  t0h, reg_b
-                        add     reg_b, #4
-                        rdlong  t0l, reg_b
-                        add     reg_b, #4
-                        rdlong  tReset, reg_b
+                        rdlong  t1h, reg_a                      ' pull t1h, in clocks, from hubram
+                        add     reg_a, #4                       ' reg_a now contains address of correct t1l
+                        rdlong  t1l, reg_a                      ' pull t1l, in clocks, from hubram
+                        add     reg_a, #4                       ' reg_a now contains address of correct t0h
+                        rdlong  t0h, reg_a                      ' pull t0h, in clocks, from hubram
+                        add     reg_a, #4                       ' reg_a now contains address of correct t0l
+                        rdlong  t0l, reg_a                      ' pull t0l, in clocks, from hubram
+                        add     reg_a, #4                       ' reg_a now contains address of correct tReset
+                        rdlong  tReset, reg_a                   ' pull tReset, in clocks, from hubram
 write_buf
                         shl     reg_d, #3                       ' multiply by 8 to get in # bits to send
                         mov     reg_e, reg_d                    ' reg_e contains number of bits to send
