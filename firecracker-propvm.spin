@@ -80,17 +80,16 @@
 '' What needs to be done -
 ''    - Separate input and macro interpreter versions of FVM
 ''    - Create a test with another board to test SPI
-''    - Write I2C com
+''    - Write SPI com
 ''    - Finish writing the MM
 ''    - Fill in missing opcodes (pretty much everything macro related)
 ''    - correct macro processing to account for memory structure
-''      with the new limits of approximately 160 LEDs and
+''      with the new limits of exactly 160 LEDs and
 ''    - update communication docs
 ''    - Testing
 ''      - FVM
 ''        - Everything
 ''      - BRKT
-''        - Loop Aligned
 ''
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
