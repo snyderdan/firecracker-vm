@@ -1163,9 +1163,8 @@ DAT Bottlerocket
                         org       0
 brkt_00
 wait_req
-'' long writes are atomic so I can just read violently
                         mov     reg_a, brkt_req_base
-                        mov     reg_b, #3 '' need to find a way to not prefer first request
+                        mov     reg_b, #3
 :loop
 :read                   rdlong  req_cur, reg_a
                         test    req_cur, use_mask         wz
@@ -1174,33 +1173,33 @@ wait_req
                         djnz    reg_b, #:loop
                         jmp     #wait_req
 copy_buf
-                        mov     reg_b, req_cur                ' store start index of copy
+                        mov     reg_b, req_cur                   ' store start index of copy
                         and     reg_b, start_mask
                         shr     reg_b, #(1+2)
-                        mov     reg_a, req_cur                ' store end index of copy
+                        mov     reg_a, req_cur                   ' store end index of copy
                         and     reg_a, end_mask
                         shr     reg_a, #(1+2+9)
                         add     reg_a, #1
 :find_length            cmpsub  reg_a, reg_b              wc
               if_nc     add     reg_a, brkt_bytes_read
               if_nc     jmp     #:find_length
-                        mov     reg_d, reg_a                  ' Make a copy for determining # bits and end index
-                        test    reg_a, #3                 wz  ' check if we're going to need to round up
-                        shr     reg_a, #2                     ' divide by 4
-              if_nz     add     reg_a, #1                     ' round up so we don't miss the last few bytes
-                        mov     reg_c, req_cur                ' Calculate start address of copy
+                        mov     reg_d, reg_a                     ' Make a copy for determining # bits and end index
+                        test    reg_a, #3                 wz     ' check if we're going to need to round up
+                        shr     reg_a, #2                        ' divide by 4
+              if_nz     add     reg_a, #1                        ' round up so we don't miss the last few bytes
+                        mov     reg_c, req_cur                   ' Calculate start address of copy
                         and     reg_c, pin_mask
                         shr     reg_c, #1                 wz
 :loop
-              if_nz     add     reg_b, brkt_bytes_read       ' Z flag needed to prevent adding 512 on pin0
-                        djnz    reg_c, #:loop             wz ' Clears z flag if we jump back
-                        add     reg_b, brkt_buf_base         ' reg_b now contains base address of this buffer in hubram
-                        mov     reg_e, reg_b                 ' reg_e now contains base address of this buffer in hubram
-                        add     reg_b, reg_d                 ' reg_b now contains last index we want to copy from
-                        mov     reg_c, #buf_cur              ' reg_c now contains base address of buffer in cogram
-                        add     reg_c, reg_a                 ' reg_c now contains last address of buffer in cogram
+              if_nz     add     reg_b, brkt_bytes_read           ' Z flag needed to prevent adding 512 on pin0
+                        djnz    reg_c, #:loop             wz     ' Clears z flag if we jump back
+                        add     reg_b, brkt_buf_base             ' reg_b now contains base address of this buffer in hubram
+                        mov     reg_e, reg_b                     ' reg_e now contains base address of this buffer in hubram
+                        add     reg_b, reg_d                     ' reg_b now contains last index we want to copy from
+                        mov     reg_c, #buf_cur                  ' reg_c now contains base address of buffer in cogram
+                        add     reg_c, reg_a                     ' reg_c now contains last address of buffer in cogram
 get_buf
-:get_lock               lockset brkt_buf_lock             wc 'Get the lock for all of the buffers
+:get_lock               lockset brkt_buf_lock             wc     ' Get the lock for all of the buffers
               if_c      jmp     #:get_lock
 :loop '' This number of unrolls gives us 1/2 efficiency on io access. See spreadsheet
 :overhead
