@@ -138,7 +138,7 @@ CON
   BRKT_OUTPUT_MASK = $0F000000
 
   BRKT_NUM_PINS = 4
-  BRKT_BUF_LEN = 480
+  BRKT_BUFFER_LEN = 480
   BRKT_BASE_PIN = 0
   BRKT_TIMING_LEN = 5
 
@@ -168,7 +168,7 @@ VAR
 
   long BRKT_requests[BRKT_NUM_PINS]           ' Space for write requests
 
-  long BRKT_bufs[BRKT_NUM_PINS*BRKT_BUF_LEN/4]  ' Space for data buffers
+  long BRKT_bufs[BRKT_NUM_PINS*BRKT_BUFFER_LEN/4]  ' Space for data buffers
 
   long BRKT_timings[BRKT_NUM_PINS*BRKT_TIMING_LEN] ' Space for pin timings
 
@@ -1163,142 +1163,142 @@ DAT Bottlerocket
                         org       0
 brkt_00
 wait_req
-                        mov     reg_a, brkt_req_base
-                        mov     reg_b, #3
+                        mov     brkt_reg_a, brkt_req_base
+                        mov     brkt_reg_b, #3
 :loop
-:read                   rdlong  req_cur, reg_a
-                        test    req_cur, use_mask         wz
+:read                   rdlong  brkt_req_cur, brkt_reg_a
+                        test    brkt_req_cur, brkt_use_mask wz
               if_nz     jmp     #copy_buf
-                        add     reg_a, #4
-                        djnz    reg_b, #:loop
+                        add     brkt_reg_a, #4
+                        djnz    brkt_reg_b, #:loop
                         jmp     #wait_req
 copy_buf
-                        mov     reg_b, req_cur                  ' store start index of copy
-                        and     reg_b, start_mask
-                        shr     reg_b, #(1+2)
-                        mov     reg_a, req_cur                  ' store end index of copy
-                        and     reg_a, end_mask
-                        shr     reg_a, #(1+2+9)
-                        add     reg_a, #1
-:find_length            cmpsub  reg_a, reg_b              wc
-              if_nc     add     reg_a, brkt_bytes_read
+                        mov     brkt_reg_b, brkt_req_cur        ' store start index of copy
+                        and     brkt_reg_b, brkt_start_mask
+                        shr     brkt_reg_b, #(1+2)
+                        mov     brkt_reg_a, brkt_req_cur        ' store end index of copy
+                        and     brkt_reg_a, brkt_end_mask
+                        shr     brkt_reg_a, #(1+2+9)
+                        add     brkt_reg_a, #1
+:find_length            cmpsub  brkt_reg_a, brkt_reg_b      wc
+              if_nc     add     brkt_reg_a, brkt_buf_len
               if_nc     jmp     #:find_length
-                        mov     reg_d, reg_a                    ' Make a copy for determining # bits and end index
-                        test    reg_a, #3                 wz    ' check if we're going to need to round up
-                        shr     reg_a, #2                       ' divide by 4
-              if_nz     add     reg_a, #1                       ' round up so we don't miss the last few bytes
-                        mov     reg_c, req_cur                  ' Calculate start address of copy
-                        and     reg_c, pin_mask
-                        shr     reg_c, #1                 wz
+                        mov     brkt_reg_d, brkt_reg_a          ' Make a copy for determining # bits and end index
+                        test    brkt_reg_a, #3              wz  ' check if we're going to need to round up
+                        shr     brkt_reg_a, #2                  ' divide by 4
+              if_nz     add     brkt_reg_a, #1                  ' round up so we don't miss the last few bytes
+                        mov     brkt_reg_c, brkt_req_cur        ' Calculate start address of copy
+                        and     brkt_reg_c, brkt_pin_mask
+                        shr     brkt_reg_c, #1              wz
 :loop
-              if_nz     add     reg_b, brkt_bytes_read          ' Z flag needed to prevent adding 512 on pin0
-                        djnz    reg_c, #:loop             wz    ' Clears z flag if we jump back
-                        add     reg_b, brkt_buf_base            ' reg_b now contains base address of this buffer in hubram
-                        mov     reg_e, reg_b                    ' reg_e now contains base address of this buffer in hubram
-                        add     reg_b, reg_d                    ' reg_b now contains last index we want to copy from
-                        mov     reg_c, #buf_cur                 ' reg_c now contains base address of buffer in cogram
-                        add     reg_c, reg_a                    ' reg_c now contains last address of buffer in cogram
+              if_nz     add     brkt_reg_b, brkt_buf_len        ' Z flag needed to prevent adding 512 on pin0
+                        djnz    brkt_reg_c, #:loop          wz  ' Clears z flag if we jump back
+                        add     brkt_reg_b, brkt_buf_base       ' brkt_reg_b now contains base address of this buffer in hubram
+                        mov     brkt_reg_e, brkt_reg_b          ' brkt_reg_e now contains base address of this buffer in hubram
+                        add     brkt_reg_b, brkt_reg_d          ' brkt_reg_b now contains last index we want to copy from
+                        mov     brkt_reg_c, #brkt_buf_cur       ' brkt_reg_c now contains base address of buffer in cogram
+                        add     brkt_reg_c, brkt_reg_a          ' brkt_reg_c now contains last address of buffer in cogram
 get_buf
-:get_lock               lockset brkt_buf_lock             wc    ' Get the lock for all of the buffers
+:get_lock               lockset brkt_buf_lock               wc  ' Get the lock for all of the buffers
               if_c      jmp     #:get_lock
 :loop '' This number of unrolls gives us 1/2 efficiency on io access. See spreadsheet
 :overhead
-                        cmp     reg_b, reg_e              wc, wz' Check if we are trying to read from below our buffer
-              if_b      add     reg_b, brkt_bytes_read          ' If so, start reading from the end
-                        movd    :read_0, reg_c                  ' Prep the rd with the destination
-                        sub     reg_c, #1                       ' decrement target address by 1
-:read_0                 rdlong  0-0, reg_b                      ' grab long from hubram
-                        sub     reg_b, #4                       ' decrement source address by 4
-                        djnz    reg_a, #:loop                   ' loop if we need more longs
+                        cmp     brkt_reg_b, brkt_reg_e      wc, wz' Check if we are trying to read from below our buffer
+              if_b      add     brkt_reg_b, brkt_buf_len        ' If so, start reading from the end
+                        movd    :read_0, brkt_reg_c             ' Prep the rd with the destination
+                        sub     brkt_reg_c, #1                  ' decrement target address by 1
+:read_0                 rdlong  0-0, brkt_reg_b                 ' grab long from hubram
+                        sub     brkt_reg_b, #4                  ' decrement source address by 4
+                        djnz    brkt_reg_a, #:loop              ' loop if we need more longs
 :rel_lock               lockclr brkt_buf_lock                   ' Release it
 get_tim
-                        lockset brkt_tim_lock             wc    ' Get lock on timings
+                        lockset brkt_tim_lock               wc  ' Get lock on timings
               if_c      jmp     #get_tim
-                        mov     reg_a, brkt_tim_base            ' reg_a now contains address of timing[0]
-                        mov     reg_b, req_cur
-                        and     reg_b, pin_mask           wz    ' z flag will be set if not writing pin 0
-                        shr     reg_b, #1
+                        mov     brkt_reg_a, brkt_tim_base       ' brkt_reg_a now contains address of timing[0]
+                        mov     brkt_reg_b, brkt_req_cur
+                        and     brkt_reg_b, brkt_pin_mask   wz  ' z flag will be set if not writing pin 0
+                        shr     brkt_reg_b, #1
 :loop
-            if_nz       add     reg_a, #(BRKT_TIMING_LEN)       ' reg_a will contain address of correct timing at end of loop
-                        djnz    reg_b, #:loop             wz
-                        rdlong  t1h, reg_a                      ' pull t1h, in clocks, from hubram
-                        add     reg_a, #4                       ' reg_a now contains address of correct t1l
-                        rdlong  t1l, reg_a                      ' pull t1l, in clocks, from hubram
-                        add     reg_a, #4                       ' reg_a now contains address of correct t0h
-                        rdlong  t0h, reg_a                      ' pull t0h, in clocks, from hubram
-                        add     reg_a, #4                       ' reg_a now contains address of correct t0l
-                        rdlong  t0l, reg_a                      ' pull t0l, in clocks, from hubram
-                        add     reg_a, #4                       ' reg_a now contains address of correct tReset
-                        rdlong  tReset, reg_a                   ' pull tReset, in clocks, from hubram
+            if_nz       add     brkt_reg_a, #(BRKT_TIMING_LEN)  ' brkt_reg_a will contain address of correct timing at end of loop
+                        djnz    brkt_reg_b, #:loop          wz
+                        rdlong  brkt_t1h, brkt_reg_a            ' pull brkt_t1h, in clocks, from hubram
+                        add     brkt_reg_a, #4                  ' brkt_reg_a now contains address of correct brkt_t1l
+                        rdlong  brkt_t1l, brkt_reg_a            ' pull brkt_t1l, in clocks, from hubram
+                        add     brkt_reg_a, #4                  ' brkt_reg_a now contains address of correct brkt_t0h
+                        rdlong  brkt_t0h, brkt_reg_a            ' pull brkt_t0h, in clocks, from hubram
+                        add     brkt_reg_a, #4                  ' brkt_reg_a now contains address of correct brkt_t0l
+                        rdlong  brkt_t0l, brkt_reg_a            ' pull brkt_t0l, in clocks, from hubram
+                        add     brkt_reg_a, #4                  ' brkt_reg_a now contains address of correct brkt_tReset
+                        rdlong  brkt_tReset, brkt_reg_a         ' pull brkt_tReset, in clocks, from hubram
 write_buf
-                        shl     reg_d, #3                       ' multiply by 8 to get in # bits to send
-                        mov     reg_e, reg_d                    ' reg_e contains number of bits to send
-                        sub     reg_e, #32                      ' reg_e will tell us to refresh data after sending 32 bits
-                        mov     reg_b, req_cur                  '
-                        and     reg_b, start_mask               '
-                        shr     reg_b, #(1+2)                   '
-                        and     reg_b, #3                 wz    ' reg_b contains # bytes garbage
-                        mov     reg_c, reg_b                    ' reg_c contains # bytes garbage
-                        shl     reg_c, #3                       ' reg_c contains # bits garbage
-                        add     reg_e, reg_c                    ' pretend to have sent our garbage
-:discard_garbage        shl     buf_cur, #8                     ' shift garbage bytes out from buf_cur
-                        djnz    reg_b, #:discard_garbage
-                        mov     reg_a, req_cur                  ' Find which pin to output on
-                        and     reg_a, pin_mask                 '
-                        shr     reg_a, #1                       '
-                        add     reg_a, #BRKT_BASE_PIN           '
-                        mov     reg_b, #1
-                        shr     reg_b, reg_a                    ' reg_b now contains pin mask
-                        andn    outa, reg_b                     ' Set output low
-                        or      dira, reg_b                     ' Toggle pin to output
-                        mov     reg_c, #buf_cur                 ' Prep registers
-                        mov     reg_a, buf_cur                  ' Prep registers
+                        shl     brkt_reg_d, #3                  ' multiply by 8 to get in # bits to send
+                        mov     brkt_reg_e, brkt_reg_d          ' brkt_reg_e contains number of bits to send
+                        sub     brkt_reg_e, #32                 ' brkt_reg_e will tell us to refresh data after sending 32 bits
+                        mov     brkt_reg_b, brkt_req_cur        '
+                        and     brkt_reg_b, brkt_start_mask     '
+                        shr     brkt_reg_b, #(1+2)              '
+                        and     brkt_reg_b, #3              wz  ' brkt_reg_b contains # bytes garbage
+                        mov     brkt_reg_c, brkt_reg_b          ' brkt_reg_c contains # bytes garbage
+                        shl     brkt_reg_c, #3                  ' brkt_reg_c contains # bits garbage
+                        add     brkt_reg_e, brkt_reg_c          ' pretend to have sent our garbage
+:discard_garbage        shl     brkt_buf_cur, #8                ' shift garbage bytes out from brkt_buf_cur
+                        djnz    brkt_reg_b, #:discard_garbage
+                        mov     brkt_reg_a, brkt_req_cur        ' Find which pin to output on
+                        and     brkt_reg_a, brkt_pin_mask       '
+                        shr     brkt_reg_a, #1                  '
+                        add     brkt_reg_a, #BRKT_BASE_PIN      '
+                        mov     brkt_reg_b, #1
+                        shr     brkt_reg_b, brkt_reg_a          ' brkt_reg_b now contains pin mask
+                        andn    outa, brkt_reg_b                ' Set output low
+                        or      dira, brkt_reg_b                ' Toggle pin to output
+                        mov     brkt_reg_c, #brkt_buf_cur       ' Prep registers
+                        mov     brkt_reg_a, brkt_buf_cur        ' Prep registers
 :bit_loop
-                        cmp     reg_e, reg_d              wz    ' reg_e = index to get next long at
-              if_z      movs    :read_next, reg_c               ' Tell our shift to use the next long
-              if_z      add     reg_c, #1                       ' Increment our pointer into the buffer
-              if_z      sub     reg_e, #32                      ' refresh data in 32 bits
-:read_next              shl     reg_a, #1                 wc    ' Check if we have a 1 or a zero bit
-                        mov     wait_until, cnt                 ' prepare wait register
-              if_c      add     wait_until, t1h                 ' prep to wait for t1h if shifted out 1
-              if_nc     add     wait_until, t0h                 ' prep wait for t0h if shifted out 0
-                        or      outa, reg_b                     ' output high
-              if_c      waitcnt wait_until, t1l                 ' wait for t1h, prep to wait for t1l
-              if_nc     waitcnt wait_until, t0l                 ' wait for t0h, prep to wait for t0l
-                        andn    outa, reg_b                     ' output low
-                        waitcnt wait_until, tReset              ' wait for low time, prep for reset time if needed
-                        djnz    reg_d, #:bit_loop               ' check if we've written all of our bits
-                        waitcnt wait_until, #0                  ' wait for reset time
+                        cmp     brkt_reg_e, brkt_reg_d      wz  ' brkt_reg_e = index to get next long at
+              if_z      movs    :read_next, brkt_reg_c          ' Tell our shift to use the next long
+              if_z      add     brkt_reg_c, #1                  ' Increment our pointer into the buffer
+              if_z      sub     brkt_reg_e, #32                 ' refresh data in 32 bits
+:read_next              shl     brkt_reg_a, #1              wc  ' Check if we have a 1 or a zero bit
+                        mov     brkt_wait_until, cnt            ' prepare wait register
+              if_c      add     brkt_wait_until, brkt_t1h       ' prep to wait for brkt_t1h if shifted out 1
+              if_nc     add     brkt_wait_until, brkt_t0h       ' prep wait for brkt_t0h if shifted out 0
+                        or      outa, brkt_reg_b                ' output high
+              if_c      waitcnt brkt_wait_until, brkt_t1l       ' wait for brkt_t1h, prep to wait for brkt_t1l
+              if_nc     waitcnt brkt_wait_until, brkt_t0l       ' wait for brkt_t0h, prep to wait for brkt_t0l
+                        andn    outa, brkt_reg_b                ' output low
+                        waitcnt brkt_wait_until, brkt_tReset    ' wait for low time, prep for reset time if needed
+                        djnz    brkt_reg_d, #:bit_loop          ' check if we've written all of our bits
+                        waitcnt brkt_wait_until, #0             ' wait for reset time
 write_done
                         jmp     wait_req
 
-use_mask      long      %00000000000_000000000_000000000_00_1
-pin_mask      long      %00000000000_000000000_000000000_11_0
-start_mask    long      %00000000000_000000000_111111111_00_0
-end_mask      long      %00000000000_111111111_000000000_00_0
+brkt_use_mask      long     %00000000000_000000000_000000000_00_1
+brkt_pin_mask      long     %00000000000_000000000_000000000_11_0
+brkt_start_mask    long     %00000000000_000000000_111111111_00_0
+brkt_end_mask      long     %00000000000_111111111_000000000_00_0
 
-brkt_bytes_read       long      BRKT_BUF_LEN
+brkt_buf_len       long     BRKT_BUFFER_LEN
 
-brkt_req_base long       0
-brkt_buf_base long       0
-brkt_tim_base long       0
-brkt_buf_lock long       0
-brkt_tim_lock long       0
+brkt_req_base      long     0
+brkt_buf_base      long     0
+brkt_tim_base      long     0
+brkt_buf_lock      long     0
+brkt_tim_lock      long     0
 
-buf_cur       res       BRKT_BUF_LEN/4
-req_cur       res       1
+brkt_buf_cur       long     0[BRKT_BUFFER_LEN/4]
+brkt_req_cur       long     1
 
-wait_until    res       1
-t1h           res       1
-t1l           res       1
-t0h           res       1
-t0l           res       1
-tReset        res       1
+brkt_wait_until    long     1
+brkt_t1h           long     1
+brkt_t1l           long     1
+brkt_t0h           long     1
+brkt_t0l           long     1
+brkt_tReset        long     1
 
-reg_a         res       1
-reg_b         res       1
-reg_c         res       1
-reg_d         res       1
-reg_e         res       1
+brkt_reg_a         long     1
+brkt_reg_b         long     1
+brkt_reg_c         long     1
+brkt_reg_d         long     1
+brkt_reg_e         long     1
               FIT
 
