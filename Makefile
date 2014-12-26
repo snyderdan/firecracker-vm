@@ -11,3 +11,7 @@ firecracker-propvm.eeprom: firecracker-propvm.spin
 
 firecracker-propvm.binary: firecracker-propvm.spin
 		$(SPINC) $(SPINCFLAGS) -b $^ -o $@
+
+clean:
+	rm -f firecracker-propvm.binary
+	rm -f firecracker-propvm.eeprom
