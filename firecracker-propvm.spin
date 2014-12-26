@@ -95,6 +95,9 @@
 
 CON
 
+  _CLKMODE = XTAL1 + PLL16X
+  _CLKFREQ = 80_000_000
+
   FVM_DEFAULT_NUM_MACROS  = 256
   FVM_DEFAULT_STACK_SIZE  = 256
   FVM_DEFAULT_BUFFER_SIZE = 256
@@ -180,6 +183,7 @@ PUB Start | n
 
   dira := $0000_FFFF     ' configure outputs for our purposes
   buf_addr := @FVM_buffer
+
   cognew(@recv_entry, 0)
 
   cognew(@hires, @FVM_PWM_table)
