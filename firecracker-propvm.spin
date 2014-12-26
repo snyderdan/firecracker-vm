@@ -169,6 +169,8 @@ VAR
 
   byte FVM_signal                             ' signal line
 
+  byte FVM_status                             ' Contains status of various Firecracker systems
+
   long BRKT_requests[BRKT_NUM_PINS]           ' Space for write requests
 
   long BRKT_bufs[BRKT_NUM_PINS*BRKT_BUFFER_LEN/4]  ' Space for data buffers
@@ -183,7 +185,8 @@ PUB Start | n
 
   dira := $0000_FFFF     ' configure outputs for our purposes
   buf_addr := @FVM_buffer
-
+  buf_ind_addr := @FVM_buffer_index
+  fvm_status_addr := @FVM_status
   cognew(@recv_entry, 0)
 
   cognew(@hires, @FVM_PWM_table)
@@ -986,11 +989,7 @@ i2c_frame_end
                         jmp     #:scl_rise
 i2c_frame_end_ret       ret
 
-
-
-
 fvm_status_addr long    0
-
 
 recv_mask     long      i2c_mask
 
@@ -1000,7 +999,6 @@ i2c_sclmask   long      1 << i2c_scl
 i2c_mask      long      i2c_sdamask | i2c_sclmask
 i2c_startmask long      !i2c_sdamask | i2c_sclmask
 i2c_frame_ind long      0  ' index into current i2c frame
-
 
 buf_local     long      0  ' local scratch buffer
 buf_addr      long      0  ' the next address in main ram we plan on writing to
