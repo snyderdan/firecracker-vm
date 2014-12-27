@@ -809,10 +809,13 @@ fvm_btime
                         add     G2, b_time_ptr
                         movd    :write_loop, :timing_cache
                         mov     G7, #5
+:get_lock               lockset b_time_lck              wc
+              if_c      jmp     #:get_lock
 :write_loop             wrlong  0-0, G2
                         add     :write_loop, :d_inc
                         add     G2, #4
                         djnz    G7, #:write_loop              ' Also really shitty alignment
+:rel_lock               lockclr  b_time_lck
                         jmp     #fvm_end_processing           ' leave
 :d_inc        long      1<<9                                  ' value needed to incremend destination by 1
 :timing_cache long      0[BRKT_TIMING_LEN]                    ' Local cache for timing
