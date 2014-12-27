@@ -328,7 +328,9 @@ fvm_opcode_table                                              ' opcodes unavaila
                         jmp     #fvm_waits                    ' WAITS - Y
                         jmp     #fvm_posts                    ' POSTS - Y
                         jmp     #fvm_killw                    ' KILLW - Y
-
+                        jmp     #fvm_btime                    ' BTIME - Y
+                        jmp     #fvm_bdelt                    ' BDELT - Y
+                        jmp     #fvm_bwrit                    ' BWRIT - Y
 fvm_nop
 ''
 '' FVM_NOP macro does absolutely nothing but waste time and space.
@@ -774,7 +776,50 @@ fvm_waits_00
 fvm_waits_end
                         add     count, #1                     ' increment past waits opcode
                         jmp     #fvm_end_processing           ' leave
-
+fvm_btime
+                        cmp     stack_ind, #(BRKT_TIMING_LEN*4) wc,wz ' ? available data
+              if_b      jmp     #fvm_nodata                   ' N - leave
+                        add     count, #(BRKT_TIMING_LEN*4)   ' adjust count
+                        mov     G0, stack_ptr
+                        mov     G7, #5                        ' Number of longs to construct
+                        movd    :cache_val, #:timing_cache
+:read_loop              rdbyte  G1, G0                        ' Most significant byte
+                        shl     G1, #24
+                        add     G0, #1
+                        rdbyte  G2, G0                        ' Second MSB
+                        shl     G2, #16
+                        add     G0, #1
+                        rdbyte  G3, G0                        ' Third MSB
+                        shl     G3, #8
+                        add     G0, #1
+                        rdbyte  G4, G0                        ' LSB
+                        add     G1, G2
+                        add     G1, G3
+                        add     G1, G4
+:cache_val              mov     0-0, G1
+                        add     :cache_val, :d_inc
+                        add     G0, #1
+                        djnz    G7, #:read_loop               ' The worst IO alignment possible
+                        rdbyte  G1, G0                        ' Get pin #
+                        and     G1, #%11                      ' Truncate to lowest 2 bits
+                        shl     G1, #2                        ' Start to convert into a byte offset, first multiply by 4
+                        mov     G7, #5                        ' Next multiply by 5, since each timing is 20 bytes long
+:calc_offset            add     G2, G1                        ' Accumulate 5 G1s in G2
+                        djnz    G7, #:calc_offset             ' Might be worthwhile to unroll this loop
+                        add     G2, b_time_ptr
+                        movd    :write_loop, :timing_cache
+                        mov     G7, #5
+:write_loop             wrlong  0-0, G2
+                        add     :write_loop, :d_inc
+                        add     G2, #4
+                        djnz    G7, #:write_loop              ' Also really shitty alignment
+                        jmp     #fvm_end_processing           ' leave
+:d_inc        long      1<<9                                  ' value needed to incremend destination by 1
+:timing_cache long      0[BRKT_TIMING_LEN]                    ' Local cache for timing
+fvm_bdelt
+                        jmp     #fvm_end_processing           ' leave
+fvm_bwrit
+                        jmp     #fvm_end_processing           ' leave
 fvm_posts
                         rdbyte  G0, stack_ptr                 ' read signal to post
                         cmp     stack_ind, #1           wz,wc ' ensure we have data
@@ -862,7 +907,12 @@ buf_proc      long      0       ' index of buffer processed
 macro         long      0       ' start of macro (not including header)
 mac_len       long      0       ' length of macro
 mac_ind       long      0       ' macro index
-
+' brkt addresses
+b_time_lck    long      0
+b_time_ptr    long      0
+b_data_lck    long      0
+b_data_ptr    long      0
+b_req_ptr     long      0
                         FIT
 
 CON
