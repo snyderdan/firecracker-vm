@@ -145,6 +145,10 @@ CON
   BRKT_BASE_PIN = 0
   BRKT_TIMING_LEN = 5
 
+  BRKT_USE_MASK_CON = %00000000000_000000000_000000000_00_1
+  BRKT_PIN_MASK_CON = %00000000000_000000000_000000000_11_0
+  BRKT_START_MASK_CON = %00000000000_000000000_111111111_00_0
+  BRKT_END_MASK_CON = %00000000000_111111111_000000000_00_0
 OBJ
 
   eeprom  :  "Propeller Eeprom"
@@ -783,19 +787,7 @@ fvm_btime
                         mov     G0, stack_ptr
                         mov     G7, #5                        ' Number of longs to construct
                         movd    :cache_val, #:timing_cache
-:read_loop              rdbyte  G1, G0                        ' Most significant byte
-                        shl     G1, #24
-                        add     G0, #1
-                        rdbyte  G2, G0                        ' Second MSB
-                        shl     G2, #16
-                        add     G0, #1
-                        rdbyte  G3, G0                        ' Third MSB
-                        shl     G3, #8
-                        add     G0, #1
-                        rdbyte  G4, G0                        ' LSB
-                        add     G1, G2
-                        add     G1, G3
-                        add     G1, G4
+:read_loop              call    #fvm_rdlong
 :cache_val              mov     0-0, G1
                         add     :cache_val, :d_inc
                         add     G0, #1
@@ -822,7 +814,22 @@ fvm_btime
 fvm_bdelt
                         jmp     #fvm_end_processing           ' leave
 fvm_bwrit
+                        cmp     stack_ind, #(4)         wc,wz ' ? available data
+              if_b      jmp     #fvm_nodata                   ' N - leave
+                        add     count, #(4)                   ' adjust count
+                        call    #fvm_rdlong                   ' G1 now contains our pre-packed req
+                        mov     G2, G1
+                        and     G2, :pin_mask
+                        '' shr  G2, #1 we shift left in a moment, so this is unneeded
+                        shl     G2, #(2-1)                    ' multiply by 4
+                        add     b_req_ptr, G2
+:get_lock               lockset b_req_lck               wc
+              if_c      jmp     #:get_lock
+                        wrlong  G1, b_req_ptr
+                        sub     b_req_ptr, G2
+:rel_lock               lockclr b_req_lck
                         jmp     #fvm_end_processing           ' leave
+:pin_mask     long      BRKT_PIN_MASK_CON
 fvm_posts
                         rdbyte  G0, stack_ptr                 ' read signal to post
                         cmp     stack_ind, #1           wz,wc ' ensure we have data
@@ -831,6 +838,24 @@ fvm_posts
 
 fvm_killw               ' I dont know what I was planning with this kill wait. I'll leave it for if anyone gets an idea.
 
+fvm_rdlong
+'' Read the big-endian long that is on the stack into G1
+'' G2-G4 are FUBAR after
+                        rdbyte  G1, stack_ptr                 ' Most significant byte
+                        shl     G1, #24
+                        add     stack_ptr, #1
+                        rdbyte  G2, stack_ptr                 ' Second MSB
+                        shl     G2, #16
+                        add     stack_ptr, #1
+                        rdbyte  G3, stack_ptr                 ' Third MSB
+                        shl     G3, #8
+                        add     stack_ptr, #1
+                        rdbyte  G4, stack_ptr                 ' LSB
+                        add     G1, G2
+                        add     G1, G3
+                        add     G1, G4
+                        sub     stack_ptr, #4
+fvm_rdlong_ret          ret
 
 fvm_getdata             ' gets data from either buffer or macro area
 
@@ -915,6 +940,7 @@ b_time_lck    long      0
 b_time_ptr    long      0
 b_data_lck    long      0
 b_data_ptr    long      0
+b_req_lck     long      0
 b_req_ptr     long      0
                         FIT
 
@@ -1219,13 +1245,18 @@ DAT Bottlerocket
 brkt_00
 wait_req
                         mov     brkt_reg_a, brkt_req_base
-                        mov     brkt_reg_b, #3
+                        mov     brkt_reg_b, brkt_last_req_ind
 :loop
+:get_lock               lockset brkt_req_lock               wc
+              if_c      jmp     #:get_lock
 :read                   rdlong  brkt_req_cur, brkt_reg_a
                         test    brkt_req_cur, brkt_use_mask wz
+              if_nz     wrlong  brkt_zero, brkt_reg_a
+:rel_lock               lockclr brkt_req_lock
               if_nz     jmp     #copy_buf
                         add     brkt_reg_a, #4
                         djnz    brkt_reg_b, #:loop
+                        mov     brkt_last_req_ind, #3
                         jmp     #wait_req
 copy_buf
                         mov     brkt_reg_b, brkt_req_cur        ' store start index of copy
@@ -1327,33 +1358,37 @@ write_buf
 write_done
                         jmp     wait_req
 
-brkt_use_mask      long     %00000000000_000000000_000000000_00_1
-brkt_pin_mask      long     %00000000000_000000000_000000000_11_0
-brkt_start_mask    long     %00000000000_000000000_111111111_00_0
-brkt_end_mask      long     %00000000000_111111111_000000000_00_0
+brkt_zero          long     0
+
+brkt_use_mask      long     BRKT_USE_MASK_CON
+brkt_pin_mask      long     BRKT_PIN_MASK_CON
+brkt_start_mask    long     BRKT_START_MASK_CON
+brkt_end_mask      long     BRKT_END_MASK_CON
 
 brkt_buf_len       long     BRKT_BUFFER_LEN
 
+brkt_req_lock      long     0
 brkt_req_base      long     0
-brkt_buf_base      long     0
-brkt_tim_base      long     0
 brkt_buf_lock      long     0
+brkt_buf_base      long     0
 brkt_tim_lock      long     0
+brkt_tim_base      long     0
 
 brkt_buf_cur       long     0[BRKT_BUFFER_LEN/4]
-brkt_req_cur       long     1
+brkt_req_cur       long     0
+brkt_last_req_ind  long     3
 
-brkt_wait_until    long     1
-brkt_t1h           long     1
-brkt_t1l           long     1
-brkt_t0h           long     1
-brkt_t0l           long     1
-brkt_tReset        long     1
+brkt_wait_until    long     0
+brkt_t1h           long     0
+brkt_t1l           long     0
+brkt_t0h           long     0
+brkt_t0l           long     0
+brkt_tReset        long     0
 
-brkt_reg_a         long     1
-brkt_reg_b         long     1
-brkt_reg_c         long     1
-brkt_reg_d         long     1
-brkt_reg_e         long     1
+brkt_reg_a         long     0
+brkt_reg_b         long     0
+brkt_reg_c         long     0
+brkt_reg_d         long     0
+brkt_reg_e         long     0
               FIT
 
