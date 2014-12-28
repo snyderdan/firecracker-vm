@@ -1326,7 +1326,7 @@ get_tim
                         shr     brkt_reg_b, #1
 :loop
             if_nz       add     brkt_reg_a, #(BRKT_TIMING_LEN)  ' brkt_reg_a will contain address of correct timing at end of loop
-                        djnz    brkt_reg_b, #:loop          wz
+            if_nz       djnz    brkt_reg_b, #:loop          wz
                         rdlong  brkt_t1h, brkt_reg_a            ' pull brkt_t1h, in clocks, from hubram
                         add     brkt_reg_a, #4                  ' brkt_reg_a now contains address of correct brkt_t1l
                         rdlong  brkt_t1l, brkt_reg_a            ' pull brkt_t1l, in clocks, from hubram
