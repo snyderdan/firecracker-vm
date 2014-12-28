@@ -812,7 +812,41 @@ fvm_btime
 :d_inc        long      1<<9                                  ' value needed to incremend destination by 1
 :timing_cache long      0[BRKT_TIMING_LEN]                    ' Local cache for timing
 fvm_bdelt
+'' Delta Format:
+'' Big Endian Long
+'' [Pin#:2][Index:9][Count:9][PAD:12]
+'' Little Endian Long
+'' [PAD:12][Count:9][Index:9][Pin#:2]
+'' Followed by bytes to insert
+                        cmp     stack_ind, #(4)         wc,wz ' ? available data
+              if_b      jmp     #fvm_nodata                   ' N - leave
+                        add     count, #(4)                   ' adjust count
+                        call    #fvm_rdlong                   ' G1 Contains packed delta
+                        mov     G2, G1
+                        and     G2, #:delt_pinmask
+                        mov     G3, b_data_ptr
+:find_buf               add     G3, :buf_len
+                        djnz    G2, #:find_buf
+                        mov     G2, G1
+                        and     G2, :delt_indmask
+                        shr     G2, #(2+9)
+                        add     G3, G2                        ' G3 contains start address of writes
+                        shr     G1, #(9+2)
+                        mov     G0, stack_ind
+:get_lock               lockset b_data_lck              wc
+              if_c      jmp  #:get_lock
+:write_loop '' TODO: Optimize to write longs
+                        rdbyte  G2, G0
+                        add     G0, #1
+                        wrbyte  G2, G3
+                        add     G3, #1
+                        djnz    G1, #:write_loop
+:rel_lock               lockclr b_data_lck
                         jmp     #fvm_end_processing           ' leave
+:delt_pinmask long      %000000000000_000000000_000000000_11
+:delt_indmask long      %000000000000_000000000_111111111_00
+:delt_cntmask long      %000000000000_111111111_000000000_00
+:buf_len      long      BRKT_BUFFER_LEN
 fvm_bwrit
                         cmp     stack_ind, #(4)         wc,wz ' ? available data
               if_b      jmp     #fvm_nodata                   ' N - leave
