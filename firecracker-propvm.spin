@@ -355,7 +355,7 @@ fvm_push
                         sub     G7, buf_proc                  ' subtract index to get length available
 
                         cmp     G7, #3                  wz,wc ' ? length available >= length requested
-              if_b      jmp     #fvm_endprocessing            ' N - we reloop and wait
+              if_b      jmp     #fvm_end_processing           ' N - we reloop and wait
                         mov     G0, buf_base
                         add     G0, buf_proc
 
@@ -371,14 +371,14 @@ fvm_push
                         or      G1, G2                        ' construct length in G1
 
                         add     stack_ind, G1                 ' calculate new stack index
-                        sub     G1, #1                  wc    ' adjust to relative length   
+                        sub     G1, #1                  wc    ' adjust to relative length
               if_nc     cmp     stack_limit, stack_ind  wc    ' ? - (stack limit < stack index) OR (length == 0)
               if_c      jmp     #fvm_push_01                  ' Y - no data gets pushed
-              
+
                         add     buf_proc, #1
-                        
+
 fvm_push_00
-                        
+
                         rdbyte  G3, G0                        ' read next byte
                         sub     G1, #1                  wz    ' decrement counter
                         add     G0, #1                        ' go to next byte in buffer
@@ -490,7 +490,7 @@ fvm_inc
 ''
                         mov     G0, #1
                         call    #fvm_checkstack
-                        
+
                         rdbyte  G0, stack_ptr                 ' load byte
                         add     G0, #1                        ' increment
                         add     count,#1
@@ -506,7 +506,7 @@ fvm_dec
 ''
                         mov     G0, #1
                         call    #fvm_checkstack
-                        
+
                         rdbyte  G0, stack_ptr                 ' load byte
                         sub     G0, #1                        ' decrement
                         add     count,#1
@@ -519,7 +519,7 @@ fvm_add
 '' FVM_ADD macro pops the top two bytes on the stack, adds them
 '' and finally pushes the sum back to the stack
 ''
-''                      
+''
                         rdbyte  G0, stack_ptr
                         sub     stack_ptr, #1
                         cmp     stack_ind, #2           wz,wc
@@ -606,7 +606,7 @@ fvm_test
 fvm_not
                         mov     G0, #1
                         call    #fvm_checkstack
-                        
+
                         rdbyte  G0, stack_ptr
                         xor     G0, #$FF
                         add     count, #1
@@ -673,7 +673,7 @@ fvm_if
               if_c      xor     flags,#%0011            wz,nr ' set zero flag depending on carry
 
                         rdbyte  G1, stack_ptr                 ' read condition code
-              if_nc     xor     flags,#%0010            wz,nr ' set zero if no carry     
+              if_nc     xor     flags,#%0010            wz,nr ' set zero if no carry
                         mov     fvm_if_wa,fvm_if_op           ' copy operation into work area
                         shl     G1,#18                        ' shift to condition code
 
