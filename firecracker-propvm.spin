@@ -666,7 +666,7 @@ fvm_if
 '' If condition is true then the next opcode is executed. If the condition is false
 '' then the next opcode is skipped
 ''
-                        mov     G1,#1
+                        mov     G0,#1
                         call    #fvm_checkstack               ' ensure we have data available
 
                         shr     flags,#1                wc,nr ' set carry flag
@@ -704,7 +704,7 @@ fvm_jmp
                         jmp     #fvm_err_processing           ' Y
 
 fvm_jmpr
-                        mov     G1, #2                        '
+                        mov     G0, #2                        '
                         call    #fvm_checkstack               '
 
                         rdbyte  G1, stack_ptr
@@ -725,7 +725,7 @@ fvm_jmpr
                         jmp     #fvm_end_processing           ' leave
 
 fvm_defmc
-                        mov     G1, #2
+                        mov     G0, #2
                         call    #fvm_checkstack               ' ensure we have length
 
                         add     G0, #1
@@ -765,8 +765,8 @@ fvm_waits_end
                         add     count, #1                     ' increment past waits opcode
                         jmp     #fvm_end_processing           ' leave
 fvm_btime
-                        cmp     stack_ind, #(BRKT_TIMING_LEN*4) wc,wz ' ? available data
-              if_b      jmp     #fvm_nodata                   ' N - leave
+                        mov     G0, #(BRKT_TIMING_LEN*4)      ' ? available data
+                        call    #fvm_checkstack
                         add     count, #(BRKT_TIMING_LEN*4)   ' adjust count
                         mov     G0, stack_ptr
                         mov     G7, #5                        ' Number of longs to construct
@@ -802,8 +802,8 @@ fvm_bdelt
 '' Little Endian Long
 '' [PAD:12][Count:9][Index:9][Pin#:2]
 '' Followed by bytes to insert
-                        cmp     stack_ind, #(4)         wc,wz ' ? available data
-              if_b      jmp     #fvm_nodata                   ' N - leave
+                        mov     G0, #4
+                        call    #fvm_checkstack
                         add     count, #(4)                   ' adjust count
                         call    #fvm_rdlong                   ' G1 Contains packed delta
                         mov     G2, G1
@@ -832,8 +832,8 @@ fvm_bdelt
 :delt_cntmask long      %000000000000_111111111_000000000_00
 :buf_len      long      BRKT_BUFFER_LEN
 fvm_bwrit
-                        cmp     stack_ind, #(4)         wc,wz ' ? available data
-              if_b      jmp     #fvm_nodata                   ' N - leave
+                        mov     G0, #4
+                        call    #fvm_checkstack
                         add     count, #(4)                   ' adjust count
                         call    #fvm_rdlong                   ' G1 now contains our pre-packed req
                         mov     G2, G1
