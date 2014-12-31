@@ -858,20 +858,21 @@ fvm_killw               ' I dont know what I was planning with this kill wait. I
 
 fvm_rdlong
 '' Read the big-endian long that is on the stack into G1
-'' G2-G4 are FUBAR after
-                        rdbyte  G1, stack_ptr                 ' Most significant byte
-                        shl     G1, #24
-                        add     stack_ptr, #1
-                        rdbyte  G2, stack_ptr                 ' Second MSB
-                        shl     G2, #16
-                        add     stack_ptr, #1
-                        rdbyte  G3, stack_ptr                 ' Third MSB
-                        shl     G3, #8
-                        add     stack_ptr, #1
-                        rdbyte  G4, stack_ptr                 ' LSB
-                        add     G1, G2
-                        add     G1, G3
-                        add     G1, G4
+'' G2-G4 is FUBAR after
+                        rdlong  G1, stack_ptr                 ' Grab Lower order long
+                        mov     stack_ptr, G2
+                        and     G2, #%11                wz    ' Determine phase of stack_ptr
+              if_z      jmp     #fvm_rdlong_ret               ' If we are at phase 0 (aligned), take the fast path
+                        mov     G3, G2
+                        subs    G2, #4
+                        add     stack_ptr, #4
+                        rdlong  G4, stack_ptr
+:discard_lsb            shr     G1, #8
+                        djnz    G3, #:discard_lsb
+                        abs     G2, G2
+:discard_msb            shl     G4, #8
+                        djnz    G2, #:discard_msb
+                        or      G1, G4
                         sub     stack_ptr, #4
 fvm_rdlong_ret          ret
 
