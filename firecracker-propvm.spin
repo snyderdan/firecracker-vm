@@ -367,6 +367,9 @@ fvm_push
 
                         cmp     G7, #3                  wz,wc ' ? length available >= length requested
               if_b      jmp     #fvm_end_processing           ' N - we reloop and wait
+                        add     buf_proc, #1                  ' increment buffer
+                        and     buf_proc, buffer_limit        ' handle wraparround
+                        
                         mov     G0, buf_base
                         add     G0, buf_proc
 
@@ -376,26 +379,37 @@ fvm_push
 
                         mov     G0, buf_base
                         add     G0, buf_proc
-                        ' 2 time wasters
+                        shl     G1, #8                        ' shift into upper 8 bits                    
+                        ' time wasted
                         rdbyte  G2, G0                        ' read lower length byte
-                        shl     G1, #8                        ' move to upper 8 bits
                         or      G1, G2                        ' construct length in G1
-
                         add     stack_ind, G1                 ' calculate new stack index
+                        
                         sub     G1, #1                  wc    ' adjust to relative length
               if_nc     cmp     stack_limit, stack_ind  wc    ' ? - (stack limit < stack index) OR (length == 0)
               if_c      jmp     #fvm_push_01                  ' Y - no data gets pushed
 
-                        add     buf_proc, #1
-
+                        add     buf_proc, #1                  ' increment buffer
+                        and     buf_proc, buffer_limit        ' handle wrap around  
 fvm_push_00
+                        
+                        rdbyte  G7, bufind_ptr                ' read buffer index
+                        sub     G7, buf_proc            wz,wc ' calculate length available
+                                                              ' ? - any data available
+              if_be     jmp     #fvm_push_00                  ' N - reloop
 
+                        mov     G0, buf_base
+                        add     G0, buf_proc
+                        add     buf_proc, #1                  ' increment buffer
+                        and     buf_proc, buffer_limit        ' handle wrap around
+                        
                         rdbyte  G3, G0                        ' read next byte
-                        sub     G1, #1                  wz    ' decrement counter
-                        add     G0, #1                        ' go to next byte in buffer
+                        sub     G1, #1                  wz,wc ' decrement counter
+                        ' time wasted                            
                         wrbyte  G3, stack_ptr                 ' store in stack
                         add     stack_ptr, #1                 ' increment stack ptr
-              if_nz     jmp     #fvm_push_00                  ' reloop for data length
+              if_ae     jmp     #fvm_push_00                  ' reloop for data length
+                        jmp     #fvm_end_processing
 
 fvm_push_01
                         tjz     G1, #fvm_end_processing       ' length of zero - lets go home
@@ -888,7 +902,7 @@ fvm_getdata             ' gets data from either buffer or macro area
 '' FVM_getdata -
 ''    G1 should contain length of data requested upon entry
 ''    G0 will contain the address of first byte if data is available
-''    All G2-G4 will be FUBAR
+''    G7 is FUBAR
 ''
 ''    HUB access is available immidiately upon return from FVM_getdata
 ''
@@ -1047,6 +1061,9 @@ i_fvm_push
 
                         cmp     i_G7, #3                  wz,wc ' ? length available >= length requested
               if_b      jmp     #i_fvm_end_processing           ' N - we reloop and wait
+                        add     i_buf_proc, #1                ' increment buffer
+                        and     i_buf_proc, i_buffer_limit    ' handle wraparound
+                        
                         mov     i_G0, i_buf_base
                         add     i_G0, i_buf_proc
 
@@ -1056,16 +1073,15 @@ i_fvm_push
 
                         mov     i_G0, i_buf_base
                         add     i_G0, i_buf_proc
-                        ' 2 time wasters
+                        shl     i_G1, #8
+                        ' 1 time waster
                         rdbyte  i_G2, i_G0                        ' read lower length byte
-                        shl     i_G1, #8                        ' move to upper 8 bits
                         or      i_G1, i_G2                        ' construct length in i_G1
-
                         add     i_stack_ind, i_G1                 ' calculate new stack index
+                        
                         sub     i_G1, #1                  wc    ' adjust to relative length
               if_nc     cmp     i_stack_limit, i_stack_ind  wc    ' ? - (stack limit < stack index) OR (length == 0)
               if_c      jmp     #i_fvm_push_01                  ' Y - no data gets pushed
-
                         add     i_buf_proc, #1
 
 i_fvm_push_00
