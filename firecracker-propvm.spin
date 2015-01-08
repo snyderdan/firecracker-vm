@@ -148,7 +148,7 @@ CON
   BRKT_PIN_MASK_CON = %00000000000_000000000_000000000_11_0
   BRKT_START_MASK_CON = %00000000000_000000000_111111111_00_0
   BRKT_END_MASK_CON = %00000000000_111111111_000000000_00_0
-  
+
 OBJ
 
   eeprom  :  "Propeller Eeprom"
@@ -189,10 +189,10 @@ VAR
 DAT TestPgms
 
 signalTesting byte      FVM_PUSH_OPCODE, 0, 1, $FE, FVM_POSTS_OPCODE, FVM_POP_OPCODE, 1
-          
+
 PUB Start | n
 
-  tester.Start(@fvm_buffer, @fvm_buffer_index, false) 
+  tester.Start(@fvm_buffer, @fvm_buffer_index, false)
 
   dira := $0000_FFFF     ' configure outputs for our purposes
   buf_addr := @FVM_buffer
@@ -369,7 +369,7 @@ fvm_push
               if_b      jmp     #fvm_end_processing           ' N - we reloop and wait
                         add     buf_proc, #1                  ' increment buffer
                         and     buf_proc, buffer_limit        ' handle wraparround
-                        
+
                         mov     G0, buf_base
                         add     G0, buf_proc
 
@@ -379,20 +379,20 @@ fvm_push
 
                         mov     G0, buf_base
                         add     G0, buf_proc
-                        shl     G1, #8                        ' shift into upper 8 bits                    
+                        shl     G1, #8                        ' shift into upper 8 bits
                         ' time wasted
                         rdbyte  G2, G0                        ' read lower length byte
                         or      G1, G2                        ' construct length in G1
                         add     stack_ind, G1                 ' calculate new stack index
-                        
+
                         sub     G1, #1                  wc    ' adjust to relative length
               if_nc     cmp     stack_limit, stack_ind  wc    ' ? - (stack limit < stack index) OR (length == 0)
               if_c      jmp     #fvm_push_01                  ' Y - no data gets pushed
 
                         add     buf_proc, #1                  ' increment buffer
-                        and     buf_proc, buffer_limit        ' handle wrap around  
+                        and     buf_proc, buffer_limit        ' handle wrap around
 fvm_push_00
-                        
+
                         rdbyte  G7, bufind_ptr                ' read buffer index
                         sub     G7, buf_proc            wz,wc ' calculate length available
                                                               ' ? - any data available
@@ -402,10 +402,10 @@ fvm_push_00
                         add     G0, buf_proc
                         add     buf_proc, #1                  ' increment buffer
                         and     buf_proc, buffer_limit        ' handle wrap around
-                        
+
                         rdbyte  G3, G0                        ' read next byte
                         sub     G1, #1                  wz,wc ' decrement counter
-                        ' time wasted                            
+                        ' time wasted
                         wrbyte  G3, stack_ptr                 ' store in stack
                         add     stack_ptr, #1                 ' increment stack ptr
               if_ae     jmp     #fvm_push_00                  ' reloop for data length
@@ -778,11 +778,11 @@ fvm_waits_end
 fvm_btime
                         mov     G0, #(BRKT_TIMING_LEN*4)      ' ? available data
                         call    #fvm_checkstack
-                        add     count, #(BRKT_TIMING_LEN*4)   ' adjust count
                         mov     G0, stack_ptr
                         mov     G7, #5                        ' Number of longs to construct
                         movd    :cache_val, #:timing_cache
 :read_loop              call    #fvm_rdlong
+                        add     stack_ptr, #4                 ' Consume data
 :cache_val              mov     0-0, G1
                         add     :cache_val, :d_inc
                         add     G0, #1
@@ -845,8 +845,8 @@ fvm_bdelt
 fvm_bwrit
                         mov     G0, #4
                         call    #fvm_checkstack
-                        add     count, #(4)                   ' adjust count
                         call    #fvm_rdlong                   ' G1 now contains our pre-packed req
+                        add     stack_ptr, #(4)               ' consume long from stack
                         mov     G2, G1
                         and     G2, :pin_mask
                         '' shr  G2, #1 we shift left in a moment, so this is unneeded
@@ -1063,7 +1063,7 @@ i_fvm_push
               if_b      jmp     #i_fvm_end_processing           ' N - we reloop and wait
                         add     i_buf_proc, #1                ' increment buffer
                         and     i_buf_proc, i_buffer_limit    ' handle wraparound
-                        
+
                         mov     i_G0, i_buf_base
                         add     i_G0, i_buf_proc
 
@@ -1078,7 +1078,7 @@ i_fvm_push
                         rdbyte  i_G2, i_G0                        ' read lower length byte
                         or      i_G1, i_G2                        ' construct length in i_G1
                         add     i_stack_ind, i_G1                 ' calculate new stack index
-                        
+
                         sub     i_G1, #1                  wc    ' adjust to relative length
               if_nc     cmp     i_stack_limit, i_stack_ind  wc    ' ? - (stack limit < stack index) OR (length == 0)
               if_c      jmp     #i_fvm_push_01                  ' Y - no data gets pushed
@@ -1577,7 +1577,7 @@ i_b_data_ptr    long      0
 i_b_req_lck     long      0
 i_b_req_ptr     long      0
                         FIT
-                        
+
 CON
 
   FVM_STATE_C   = %0000_0001    ' C flag
