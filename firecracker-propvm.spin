@@ -874,17 +874,28 @@ fvm_bdelt
                         cmp     G0, #4                  wc    ' Check if we've got more than another long to write
               if_be     jmp     #:write_last                  ' If not, go to the special-cased end
 :align_src
-                        call    #fvm_rdlong                   ' If we do, let's align the reads
-                        mov     G2, G1                        ' Make a copy of the long we just got
-                        shl     G2, G6                        ' Discard high order bits of the copy
-                        or      G2, G7                        ' Construct lower 32 bits
-                        wrlong  G7, G5                        ' Write data back to main ram
-                        mov     G7, G1                        ' Move the data we just read to the lower order register
-                        subs    G6, #32                       ' Calculate the inverse of phase -(G6 -32)
+                        test    stack_ptr, #%11         wz    ' Check if the stack is already aligned
+              if_z      jmp     #:write_loop                  ' If it is, GTFO
+                        shr     G6, #3                        ' Convert phase back from bits to bytes
+                        sub     stack_ptr, G6                 ' Roll the stack back to re-read the bytes in G7
+                        mov     G6, stack_ptr                 ' Temporarily use G6 to store stack phase
+                        and     G6, %11                 wz    ' Check if subtracting fixed our alignment problems
+              if_z      jmp     #:write_loop                  ' If it did, GTFO
+                        call    #fvm_rdlong                   ' Otherwise, grab a long from the stack
+                        mov     G7, G1                        ' Make a copy of the long we just read in the lower-order buffer
+                        subs    G6, #4                        ' Calculate inverse of phase -(G6 - 4)
                         neg     G6, G6
-                        shr     G7, G6                        ' Discard lower order bits of that have already been written to memory
-                        mov     G4, G6
-
+                        add     stack_ptr, G6                 ' Adding inverse phase aligns the stack
+                        call    #fvm_rdlong                   ' Grab another (now aligned) long from the stack
+                        shl     G6, #3                        ' Convert phase from bytes to bits
+                        shr     G1, G6                        ' Discard lower order bits from new long
+                        subs    G6, #32                       ' Calculate inverse of inverse of phase -(G6 - 32)
+                        neg     G6, G6                        ' aka regular phase
+                        wrlong  G7, G5                        ' write data back to hubram
+                        add     G5, #4                        ' Increment destination
+                        sub     G0, #4                        ' Decrement amount of bytes to write
+                        cmp     G0, #4                  wz, wc' Check if we've got at least another long to write
+              if_be     jmp     #:write_last                  ' If not, go to special-cased write last
 :write_loop '' TODO: Optimize to write longs
 :write_last
 :rel_lock               lockclr b_data_lck
