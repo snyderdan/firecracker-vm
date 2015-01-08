@@ -786,6 +786,7 @@ fvm_btime
 :cache_val              mov     0-0, G1
                         add     :cache_val, :d_inc
                         add     G0, #1
+                        add     stack_ptr, #4                 ' Actually consume the long
                         djnz    G7, #:read_loop               ' The worst IO alignment possible
                         rdbyte  G1, G0                        ' Get pin #
                         and     G1, #%11                      ' Truncate to lowest 2 bits
@@ -813,30 +814,81 @@ fvm_bdelt
 '' Little Endian Long
 '' [PAD:12][Count:9][Index:9][Pin#:2]
 '' Followed by bytes to insert
+'' Tries to preserve the following register usage:
+'' G0 - # of bytes to write
+'' G1 - Higher Order Output buffer, return from fvm_rdlong
+'' G2 - Scratch, destroyed by fvm_rdlong
+'' G3 - Scratch, destroyed by fvm_rdlong
+'' G4 - Scratch, destroyed by fvm_rdlong
+'' G5 - Address in hubram to write to
+'' G6 - # of usable bits in the Lower Order Output
+'' G7 - Lower Order buffer
                         mov     G0, #4
                         call    #fvm_checkstack
-                        add     count, #(4)                   ' adjust count
                         call    #fvm_rdlong                   ' G1 Contains packed delta
+                        mov     G2, G1                        ' Copy delta to G2
+                        add     stack_ptr, #4                 ' Consume delta from stack
+                        and     G2, #:delt_pinmask      wz    ' Isolate pin
+                        mov     G5, b_data_ptr                ' G3 contains start address of data buffers
+:find_buf     if_nz     add     G5, :buf_len                  ' Skip buffers we don't want to write into
+              if_nz     djnz    G2, #:find_buf
                         mov     G2, G1
-                        and     G2, #:delt_pinmask
-                        mov     G3, b_data_ptr
-:find_buf               add     G3, :buf_len
-                        djnz    G2, #:find_buf
-                        mov     G2, G1
-                        and     G2, :delt_indmask
-                        shr     G2, #(2+9)
-                        add     G3, G2                        ' G3 contains start address of writes
-                        shr     G1, #(9+2)
-                        mov     G0, stack_ind
+                        and     G2, :delt_indmask             ' Isolate index
+                        shr     G2, #(2)
+                        add     G5, G2                        ' G5 contains start address of writes
+                        mov     G0, G1
+                        and     G0, :delt_cntmask
+                        shr     G0, #(9+2)                    ' G0 now contains the number of bytes to write
+                        call    #fvm_checkstack               ' Make sure we actually have enough data
+                        mov     G6, G5
+                        and     G6, #%11                wz    ' Determine phase of destination ( also number of excess bytes we'll have)
+                        shl     G6, #3                        ' Multiply phase by 2^3 to get phase in bits
+                        call    #fvm_rdlong                   ' Grab the long we'll be writing
+                        mov     G7, G1                        ' Make a copy for the low-order buffer (G7)
 :get_lock               lockset b_data_lck              wc
-              if_c      jmp  #:get_lock
+              if_c      jmp     #:get_lock
+:align_dest
+              '' TODO: Deal with aligned writes of less than 4 bytes
+              if_z      sub     G0, #4                        ' If we don't have to align, subtract 4 from the number of bytes to write
+              if_z      jmp     #:write_first                 ' if phase is 0, we can jump right to doing work
+                        shl     G1, G6                        ' Discard high order bits we don't care about
+                        mov     G3, G6                        ' Make a copy of the phase to calculate its inverse
+                        subs    G3, #32                       ' 32 - phase = -(phase -32)
+                        neg     G3, G3                        ' G3 Now contains inverse phase
+                        shr     G7, G3                        ' Discard low order bits of the high order buffer
+                        mov     G4, #%11111111                ' We'll scroll this to create the mask
+                        mov     G3, #0                        ' Construct the mask in G3
+                        shl     G4, G7                        ' Shift mask left to its starting location
+:mask_loop              or      G3, G4                        ' Construct a mask with ones where we want to replace data
+                        shl     G4, #8
+                        sub     G0, #1                  wz    ' If we run out of bytes in this delta, get out of the loop
+              if_nz     tjz     G4, #:mask_loop
+                        and     G1, G3                        ' Zero bits not under mask
+                        rdlong  G2, G5                        ' Grab the long we'll be writing to
+                        andn    G2, G3                        ' Zero bits under the mask
+                        or      G1, G2                        ' Construct the long to write back
+:write_first
+                        wrlong  G1, G5                        ' Write the long back to the hub. This and all future writes can be done long-aligned
+              if_z      jmp     #:rel_lock                    ' Get out if we ran out of bytes to write
+                        add     G5, #4                        ' Increment destination address ( 4 is probably too much, but the lower two bits get cleared anyway)
+                        cmp     G0, #4                  wc    ' Check if we've got more than another long to write
+              if_be     jmp     #:write_last                  ' If not, go to the special-cased end
+:align_src
+                        call    #fvm_rdlong                   ' If we do, let's align the reads
+                        mov     G2, G1                        ' Make a copy of the long we just got
+                        shl     G2, G6                        ' Discard high order bits of the copy
+                        or      G2, G7                        ' Construct lower 32 bits
+                        wrlong  G7, G5                        ' Write data back to main ram
+                        mov     G7, G1                        ' Move the data we just read to the lower order register
+                        subs    G6, #32                       ' Calculate the inverse of phase -(G6 -32)
+                        neg     G6, G6
+                        shr     G7, G6                        ' Discard lower order bits of that have already been written to memory
+                        mov     G4, G6
+
 :write_loop '' TODO: Optimize to write longs
-                        rdbyte  G2, G0
-                        add     G0, #1
-                        wrbyte  G2, G3
-                        add     G3, #1
-                        djnz    G1, #:write_loop
+:write_last
 :rel_lock               lockclr b_data_lck
+
                         jmp     #fvm_end_processing           ' leave
 :delt_pinmask long      %000000000000_000000000_000000000_11
 :delt_indmask long      %000000000000_000000000_111111111_00
@@ -874,17 +926,17 @@ fvm_rdlong
                         mov     stack_ptr, G2
                         and     G2, #%11                wz    ' Determine phase of stack_ptr
               if_z      jmp     #fvm_rdlong_ret               ' If we are at phase 0 (aligned), take the fast path
-                        mov     G3, G2
-                        subs    G2, #4
-                        add     stack_ptr, #4
-                        rdlong  G4, stack_ptr
-:discard_lsb            shr     G1, #8
+                        mov     G3, G2                        ' Otherwise, make a copy of phase
+                        subs    G2, #4                        ' start to calculate inverse phase (4-phase) = -(phase-4)
+                        add     stack_ptr, #4                 ' Increment stack_ptr to next long
+                        rdlong  G4, stack_ptr                 ' Read the next long we need
+                        neg     G2, G2                        ' Finish calc of inverse phase
+:discard_lsb            shr     G1, #8                        ' shift lower order long to discard garbage
                         djnz    G3, #:discard_lsb
-                        abs     G2, G2
-:discard_msb            shl     G4, #8
+:discard_msb            shl     G4, #8                        ' shift higher order long to discard garbage
                         djnz    G2, #:discard_msb
-                        or      G1, G4
-                        sub     stack_ptr, #4
+                        or      G1, G4                        ' Combine the two longs
+                        sub     stack_ptr, #4                 ' Reset stack ptr, since maybe we didn't want to consume all of the data
 fvm_rdlong_ret          ret
 
 fvm_checkstack
