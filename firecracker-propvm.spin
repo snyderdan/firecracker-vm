@@ -78,7 +78,6 @@
 ''      code section of the macro. Which means PC=0 is PC=macro_base+5)
 ''
 '' What needs to be done -
-''    - Separate input and macro interpreter versions of FVM
 ''    - Create a test with another board to test SPI
 ''    - Write SPI com
 ''    - Finish writing the MM
@@ -124,11 +123,11 @@ CON
   FVM_IF_OPCODE    = 16                                                         ' macro only
   FVM_JMP_OPCODE   = 17         ' jump                                          ' macro only
   FVM_JMPR_OPCODE  = 18         ' jump relative                                 ' macro only
-  FVM_DEFMC_OPCODE = 19         ' define macro                                  ' both
+  FVM_DEFMC_OPCODE = 19         ' define macro                                  ' interpreter only
   FVM_CALMC_OPCODE = 20         ' call macro                                    ' both (different implementations)
   FVM_RETMC_OPCODE = 21         ' return from macro                             ' macro only
-  FVM_SAVMC_OPCODE = 22         ' save macro                                    ' both
-  FVM_DELMC_OPCODE = 23         ' delete macro                                  ' both
+  FVM_SAVMC_OPCODE = 22         ' save macro                                    ' interpreter only
+  FVM_DELMC_OPCODE = 23         ' delete macro                                  ' interpreter only
   FVM_LDMC_OPCODE  = 24         ' preload macro                                 ' both
   FVM_WAITS_OPCODE = 25         ' wait for signal                               ' both
   FVM_POSTS_OPCODE = 26         ' post signal                                   ' both
@@ -149,9 +148,11 @@ CON
   BRKT_PIN_MASK_CON = %00000000000_000000000_000000000_11_0
   BRKT_START_MASK_CON = %00000000000_000000000_111111111_00_0
   BRKT_END_MASK_CON = %00000000000_111111111_000000000_00_0
+  
 OBJ
 
   eeprom  :  "Propeller Eeprom"
+  tester  :  "fvm_tester"
 
 VAR
 
@@ -185,7 +186,13 @@ VAR
 
   byte BRKTA_tim_lock                          ' Store the timing lock
 
+DAT TestPgms
+
+signalTesting byte      FVM_PUSH_OPCODE, 0, 1, $FE, FVM_POSTS_OPCODE, FVM_POP_OPCODE, 1
+          
 PUB Start | n
+
+  tester.Start(@fvm_buffer, @fvm_buffer_index, false) 
 
   dira := $0000_FFFF     ' configure outputs for our purposes
   buf_addr := @FVM_buffer
@@ -197,14 +204,16 @@ PUB Start | n
 
   pwm_base   := @FVM_PWM_table
   buf_base   := @FVM_buffer
-  stack_base := @FVM_inpdat_stack
+  stack_base := @FVM_macdat_stack
   bufind_ptr := @FVM_buffer_index
   macro_base := @FVM_macros
   signal_ptr := @FVM_signal
 
   cognew(@fvm_entry, 0)
 
-  cognew(@fvm_entry, 0)                                 ' start new macro version
+  stack_base := @FVM_inpdat_stack
+
+  cognew(@i_fvm_entry, 0)                                 ' start new interpreter
 
 
   if ((BRKT_buf_lock := locknew) == -1)
@@ -217,6 +226,9 @@ PUB Start | n
   brkt_tim_base := @BRKT_timings
   brkt_tim_lock := @BRKTA_tim_lock
   cognew(@Bottlerocket, 0)
+
+  tester.execute(@signalTesting, 7)
+  'tester.signalTest(254,@fvm_signal,true)
 
 PUB MacroManager | address, s, len1, len2, end
 
@@ -271,7 +283,6 @@ PUB MacroManager | address, s, len1, len2, end
     else
       next
 
-
 DAT FireCrackerVM
 
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
@@ -313,21 +324,21 @@ fvm_opcode_table                                              ' opcodes unavaila
                         jmp     #fvm_dec                      ' DEC   - Y
                         jmp     #fvm_add                      ' ADD   - Y
                         jmp     #fvm_sub                      ' SUB   - Y
-                        jmp     #fvm_NOP                      ' CMP   - N
+                        jmp     #fvm_cmp                      ' CMP   - Y
                         jmp     #fvm_or                       ' OR    - Y
                         jmp     #fvm_and                      ' AND   - Y
-                        jmp     #fvm_NOP                      ' TEST  - N
+                        jmp     #fvm_test                     ' TEST  - Y
                         jmp     #fvm_not                      ' NOT   - Y
                         jmp     #fvm_swap                     ' SWAP  - Y
                         jmp     #fvm_dup                      ' DUP   - Y
-                        jmp     #fvm_NOP                      ' IF    - N
-                        jmp     #fvm_NOP                      ' JMP   - N
-                        jmp     #fvm_NOP                      ' JMPR  - N
-                        jmp     #fvm_defmc                    ' DEFMC - Y
+                        jmp     #fvm_if                       ' IF    - Y
+                        jmp     #fvm_jmp                      ' JMP   - Y
+                        jmp     #fvm_jmpr                     ' JMPR  - Y
+                        jmp     #fvm_NOP                      ' DEFMC - N
                         jmp     #fvm_calmc                    ' CALMC - Y
-                        jmp     #fvm_NOP                      ' RETMC - N
-                        jmp     #fvm_savmc                    ' SAVMC - Y
-                        jmp     #fvm_delmc                    ' DELMC - Y
+                        jmp     #fvm_retmc                    ' RETMC - Y
+                        jmp     #fvm_NOP                      ' SAVMC - N
+                        jmp     #fvm_NOP                      ' DELMC - N
                         jmp     #fvm_ldmc                     ' LDMC  - Y
                         jmp     #fvm_waits                    ' WAITS - Y
                         jmp     #fvm_posts                    ' POSTS - Y
@@ -724,25 +735,11 @@ fvm_jmpr
               if_b      jmp     #fvm_err_processing           ' ensure we are within macro limit
                         jmp     #fvm_end_processing           ' leave
 
-fvm_defmc
-                        mov     G0, #2
-                        call    #fvm_checkstack               ' ensure we have length
-
-                        add     G0, #1
-                        rdbyte  G1, G0                        ' read first byte
-                        add     G1, #2                        ' include opcode and length
-                        call    #fvm_getdata                  ' ensure we have all bytes available
-                        add     count, G1                     ' account for bytes we are about to read
-                        sub     G1, #4                  wz,wc ' adjust to relative length
-              if_b      jmp     fvm_end_processing            ' leave if length is zero
-
 
 fvm_calmc
 
 fvm_retmc
 
-fvm_savmc
-fvm_delmc
 fvm_ldmc
 fvm_waits
                         rdbyte  G0, signal_ptr                ' read signal
@@ -965,6 +962,606 @@ b_req_lck     long      0
 b_req_ptr     long      0
                         FIT
 
+DAT
+
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+''
+''   i_FVM_entry -
+''      Start the interpreter Firecracker VM
+''
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+                        org     0
+
+i_fvm_entry
+
+i_fvm_process
+''
+'' All i_macros take arguments from the stack except for stack
+'' operations themselves. Stack operations get their arguments
+'' (things like length and data) from the data input (either buffer
+'' or i_macro).
+''
+''
+                        mov     i_stack_ptr, i_stack_base         ' load base address of stack
+                        add     i_stack_ptr, i_stack_ind          ' calculate address of top of stack
+                        mov     i_G1, #1                        ' minimum length of 1 byte
+                        call    #i_fvm_getdata                  ' get i_opcode address
+                        rdbyte  i_opcode, i_G0                    ' read i_opcode
+
+i_fvm_eval_opcode
+                        mov     i_G1, #i_fvm_opcode_table         ' load i_G1 with i_opcode table address
+                        add     i_G1, i_opcode                    ' add i_opcode offset
+
+                        jmp     i_G1                            ' jump to correct index into jump table
+i_fvm_opcode_table                                              ' i_opcodes unavailable on the live input interpreter will be NOPs
+                                                              ' OPCODE - AVAILABLE IN THIS FVM (Y/N)
+                        jmp     #i_fvm_nop                      ' NOP   - Y
+                        jmp     #i_fvm_push                     ' PUSH  - Y
+                        jmp     #i_fvm_pop                      ' POP   - Y
+                        jmp     #i_fvm_write                    ' WRITE - Y
+                        jmp     #i_fvm_delay                    ' DELAY - Y
+                        jmp     #i_fvm_inc                      ' INC   - Y
+                        jmp     #i_fvm_dec                      ' DEC   - Y
+                        jmp     #i_fvm_add                      ' ADD   - Y
+                        jmp     #i_fvm_sub                      ' SUB   - Y
+                        jmp     #i_fvm_NOP                      ' CMP   - N
+                        jmp     #i_fvm_or                       ' OR    - Y
+                        jmp     #i_fvm_and                      ' AND   - Y
+                        jmp     #i_fvm_NOP                      ' TEST  - N
+                        jmp     #i_fvm_not                      ' NOT   - Y
+                        jmp     #i_fvm_swap                     ' SWAP  - Y
+                        jmp     #i_fvm_dup                      ' DUP   - Y
+                        jmp     #i_fvm_NOP                      ' IF    - N
+                        jmp     #i_fvm_NOP                      ' JMP   - N
+                        jmp     #i_fvm_NOP                      ' JMPR  - N
+                        jmp     #i_fvm_defmc                    ' DEFMC - Y
+                        jmp     #i_fvm_calmc                    ' CALMC - Y
+                        jmp     #i_fvm_NOP                      ' RETMC - N
+                        jmp     #i_fvm_savmc                    ' SAVMC - Y
+                        jmp     #i_fvm_delmc                    ' DELMC - Y
+                        jmp     #i_fvm_ldmc                     ' LDMC  - Y
+                        jmp     #i_fvm_waits                    ' WAITS - Y
+                        jmp     #i_fvm_posts                    ' POSTS - Y
+                        jmp     #i_fvm_killw                    ' KILLW - Y
+                        jmp     #i_fvm_btime                    ' BTIME - Y
+                        jmp     #i_fvm_bdelt                    ' BDELT - Y
+                        jmp     #i_fvm_bwrit                    ' BWRIT - Y
+i_fvm_nop
+''
+'' FVM_NOP i_macro does absolutely nothing but waste time and space.
+''
+''
+                        add     i_count, #1
+                        jmp     #i_fvm_end_processing
+
+i_fvm_push
+''
+'' FVM_PUSH i_macro is followed by a 2 byte length specifying how many
+'' bytes that follow are to be pushed to the stack. The i_macro takes
+'' a minimum of two bytes
+''
+''
+                        rdbyte  i_G0, i_bufind_ptr                ' load filled index
+                        mov     i_G7, i_G0                        ' load i_G7 with filled index
+                        sub     i_G7, i_buf_proc                  ' subtract index to get length available
+
+                        cmp     i_G7, #3                  wz,wc ' ? length available >= length requested
+              if_b      jmp     #i_fvm_end_processing           ' N - we reloop and wait
+                        mov     i_G0, i_buf_base
+                        add     i_G0, i_buf_proc
+
+                        rdbyte  i_G1, i_G0                        ' read length into i_G1
+                        add     i_buf_proc, #1                  ' increment buffer
+                        and     i_buf_proc, i_buffer_limit        ' ? wrap around
+
+                        mov     i_G0, i_buf_base
+                        add     i_G0, i_buf_proc
+                        ' 2 time wasters
+                        rdbyte  i_G2, i_G0                        ' read lower length byte
+                        shl     i_G1, #8                        ' move to upper 8 bits
+                        or      i_G1, i_G2                        ' construct length in i_G1
+
+                        add     i_stack_ind, i_G1                 ' calculate new stack index
+                        sub     i_G1, #1                  wc    ' adjust to relative length
+              if_nc     cmp     i_stack_limit, i_stack_ind  wc    ' ? - (stack limit < stack index) OR (length == 0)
+              if_c      jmp     #i_fvm_push_01                  ' Y - no data gets pushed
+
+                        add     i_buf_proc, #1
+
+i_fvm_push_00
+
+                        rdbyte  i_G3, i_G0                        ' read next byte
+                        sub     i_G1, #1                  wz    ' decrement i_counter
+                        add     i_G0, #1                        ' go to next byte in buffer
+                        wrbyte  i_G3, i_stack_ptr                 ' store in stack
+                        add     i_stack_ptr, #1                 ' increment stack ptr
+              if_nz     jmp     #i_fvm_push_00                  ' reloop for data length
+
+i_fvm_push_01
+                        tjz     i_G1, #i_fvm_end_processing       ' length of zero - lets go home
+                        jmp     #i_fvm_stack_error              ' if length is not zero, then we have a stack error
+
+i_fvm_pop
+''
+'' FVM_POP i_macro is followed by a length byte and specifies
+'' how many bytes are popped from the stack. The pop simply decrements
+'' the stack pointer by the length field.
+''
+''
+                        mov     i_G1, #2                        ' ensure we have a length byte present
+                        call    #i_fvm_getdata                  ' ^
+                        add     i_G0, #1                        ' go to length byte
+                        add     i_count, #2                     ' increment by 2
+                        nop
+                        nop
+                        rdbyte  i_G0, i_G0                        ' read length into i_G0
+                        cmpsub  i_stack_ind, i_G0           wc    ' compare and subtract if we can
+              if_c      jmp     #i_fvm_end_processing           ' if index >= length popped, exit successful
+                        jmp     #i_fvm_stack_error              ' otherwise, raise stack error
+
+
+i_fvm_write
+''
+'' FVM_WRITE i_macro takes a 1 byte pin address and a 1 byte value.
+'' It writes the 8-bit PWM value to any of the lower 16 pins
+'' (pins 0-15). The PWM signal generated is not fixed duty cycle.
+''
+''
+                        mov     i_G0, #2
+                        call    #i_fvm_checkstack
+
+                        rdbyte  i_G1, i_stack_ptr                 ' read pin number
+                        mov     i_G2, i_pwm_base                  ' load pwm base
+                        sub     i_stack_ptr, #1                 ' go to value
+                        rdbyte  i_G3, i_stack_ptr                 ' read value into i_G3
+                        and     i_G1, #$0F                      ' cap at 4 bits (16 pins)
+                        shl     i_G1, #2                        ' multiply by 4 (pin table offset)
+
+                        add     i_G2, i_G1                        ' go to offset in PWM table
+                        mov     i_G0, i_G3                        ' copy value to i_G0
+                        shl     i_G0, #8                        ' shift up 8 bits
+                        or      i_G3, i_G0                        ' merge all 16-bits
+
+                        mov     i_G0, i_G3                        ' repeat but with 16-bits
+                        shl     i_G0, #16
+                        or      i_G3, i_G0
+                        nop                                   ' above process scales 8-bit to 32-bit PWM (0x01010101 * value)
+
+                        wrlong  i_G3, i_G2                        ' store value in table
+                        add     i_count, #1                     ' add to i_count
+                        jmp     #i_fvm_end_processing           ' exit
+
+
+i_fvm_delay
+''
+'' FVM_DELAY i_macro takes an unsigned 32-bit integer in micro-seconds.
+'' minimum wait time of 1.2us for 0 and 1us specified. All other values
+'' delay precisely.
+''
+''
+                        mov     i_G0, #4
+                        call    #i_fvm_checkstack
+                        ' read byte by byte to avoid alignment issues
+                        rdbyte  i_G1, i_stack_ptr                 ' read byte
+                        shl     i_G1, #24                       ' shift up
+                        add     i_stack_ptr, #1                 ' go to next byte
+                        rdbyte  i_G2, i_stack_ptr                 ' read byte
+                        shl     i_G2, #16                       ' shift up
+                        add     i_stack_ptr, #1                 ' go to next byte
+                        rdbyte  i_G3, i_stack_ptr                 ' read byte
+                        shl     i_G3, #8                        ' shift up
+                        add     i_stack_ptr, #1                 ' go to next byte
+                        rdbyte  i_G4, i_stack_ptr                 ' read byte
+                        or      i_G4, i_G3
+                        or      i_G4, i_G2
+
+                        or      i_G4, i_G1                        ' construct number in i_G4
+                        sub     i_G4, #2                  wz,wc ' adjust remaining time
+              if_b      jmp     #i_fvm_end_processing           ' if time < 2 we leave
+                        mov     i_G0,#13                        ' otherwise, delay
+i_fvm_delay_00                                                  ' fill in to 2us
+                        djnz    i_G0,#i_fvm_delay_00
+
+i_fvm_delay_01
+                        sub     i_G4, #1                  wz,wc '
+              if_b      jmp     #i_fvm_end_processing
+                        mov     i_G0,#16
+i_fvm_delay_02
+                        djnz    i_G0,#i_fvm_delay_02
+                        jmp     #i_fvm_delay_01
+
+
+
+
+i_fvm_inc
+''
+'' FVM_INC i_macro simply takes the byte on the top of the stack
+'' and increments it by 1.
+''
+''
+                        mov     i_G0, #1
+                        call    #i_fvm_checkstack
+
+                        rdbyte  i_G0, i_stack_ptr                 ' load byte
+                        add     i_G0, #1                        ' increment
+                        add     i_count,#1
+                        wrbyte  i_G0, i_stack_ptr                 ' store
+
+                         jmp    #i_fvm_end_processing           ' exit
+
+i_fvm_dec
+''
+'' FVM_DEC i_macro simply takes the byte on the top of the stack
+'' and decrements it by 1.
+''
+''
+                        mov     i_G0, #1
+                        call    #i_fvm_checkstack
+
+                        rdbyte  i_G0, i_stack_ptr                 ' load byte
+                        sub     i_G0, #1                        ' decrement
+                        add     i_count,#1
+                        wrbyte  i_G0, i_stack_ptr                 ' store
+
+                        jmp     #i_fvm_end_processing           ' exit
+
+i_fvm_add
+''
+'' FVM_ADD i_macro pops the top two bytes on the stack, adds them
+'' and finally pushes the sum back to the stack
+''
+''
+                        rdbyte  i_G0, i_stack_ptr
+                        sub     i_stack_ptr, #1
+                        cmp     i_stack_ind, #2           wz,wc
+                        rdbyte  i_G1, i_stack_ptr
+              if_b      jmp     #i_fvm_nodata                   ' ensure data is present before writing
+                        add     i_G0, i_G1
+                        wrbyte  i_G0, i_stack_ptr
+                        add     i_count,#1
+                        sub     i_stack_ind, #1
+
+                        jmp     #i_fvm_end_processing
+i_fvm_sub
+''
+'' FVM_SUB i_macro pops the top two bytes on the stack, subtracts
+'' the first item pushed to the stack, from the second or
+'' the (top) - (top - 1), and pushes the result back
+'' to the stack
+''
+''
+                        rdbyte  i_G0, i_stack_ptr
+                        sub     i_stack_ptr, #1
+                        cmp     i_stack_ind, #2           wz,wc
+                        rdbyte  i_G1, i_stack_ptr
+              if_b      jmp     #i_fvm_nodata
+                        sub     i_G0, i_G1
+                        wrbyte  i_G0, i_stack_ptr
+                        add     i_count, #1
+                        sub     i_stack_ind, #1
+
+                        jmp     #i_fvm_end_processing
+
+i_fvm_or
+                        rdbyte  i_G0, i_stack_ptr
+                        sub     i_stack_ptr, #1
+                        cmp     i_stack_ind, #2           wz,wc
+                        rdbyte  i_G1, i_stack_ptr
+              if_b      jmp     #i_fvm_nodata
+                        or      i_G0, i_G1
+                        wrbyte  i_G0, i_stack_ptr
+                        add     i_count, #1
+                        sub     i_stack_ind, #1
+
+                        jmp     #i_fvm_end_processing
+
+i_fvm_and
+                        rdbyte  i_G0, i_stack_ptr
+                        sub     i_stack_ptr, #1
+                        cmp     i_stack_ind, #2           wz,wc
+                        rdbyte  i_G1, i_stack_ptr
+              if_b      jmp     #i_fvm_nodata
+                        and     i_G0, i_G1
+                        wrbyte  i_G0, i_stack_ptr
+                        add     i_count, #1
+                        sub     i_stack_ind, #1
+
+                        jmp     #i_fvm_end_processing
+
+i_fvm_not
+                        mov     i_G0, #1
+                        call    #i_fvm_checkstack
+
+                        rdbyte  i_G0, i_stack_ptr
+                        xor     i_G0, #$FF
+                        add     i_count, #1
+                        wrbyte  i_G0, i_stack_ptr
+
+                        jmp     #i_fvm_end_processing
+
+i_fvm_swap
+                        rdbyte  i_G0, i_stack_ptr
+                        sub     i_stack_ptr, #1
+                        cmp     i_stack_ind, #2           wz,wc
+                        rdbyte  i_G1, i_stack_ptr
+              if_b      jmp     #i_fvm_nodata
+                        add     i_count, #1
+                        wrbyte  i_G0, i_stack_ptr
+                        add     i_stack_ptr, #1
+                        nop
+                        wrbyte  i_G1, i_stack_ptr
+
+                        jmp     #i_fvm_end_processing
+
+i_fvm_dup
+                        mov     i_G1, #2
+                        call    #i_fvm_getdata
+
+                        add     i_G0, #1                        ' go to length i_count byte
+                        mov     i_G2, i_stack_ind                 ' copy stack index into i_G2
+
+                        rdbyte  i_G1, i_G0                        ' read length of data and test for zero
+                        cmpsub  i_G2, i_G1                  wc    ' ? enough data present
+              if_nc     jmp     #i_fvm_nodata                   ' N error
+
+                        add     i_stack_ptr, i_G2                 ' go to new upper limit
+                        cmp     i_stack_ptr, #255         wz,wc ' ? over stack limit
+              if_a      jmp     #i_fvm_stack_error              ' Y
+                        sub     i_stack_ptr, i_G2                 ' N
+
+                        add     i_G2, i_stack_base                ' Go to bottom of values to duplicate
+                        add     i_count, #2
+                        tjz     i_G1, #i_fvm_end_processing       ' leave if zero
+
+i_fvm_dup_00
+                        rdbyte  i_G0, i_G2                        ' read byte
+                        add     i_G2, #1                        ' go to next byte to copy
+                        add     i_stack_ind, #1                 ' increment stack index
+                        wrbyte  i_G0, i_stack_ptr                 ' write byte in upper area
+                        add     i_stack_ptr, #1                 ' go to next write location
+                        djnz    i_G1, #i_fvm_dup_00               ' reloop if not zero
+
+                        jmp     #i_fvm_end_processing
+
+i_fvm_defmc
+                        mov     i_G0, #2
+                        call    #i_fvm_checkstack               ' ensure we have length
+
+                        add     i_G0, #1
+                        rdbyte  i_G1, i_G0                        ' read first byte
+                        add     i_G1, #2                        ' include i_opcode and length
+                        call    #i_fvm_getdata                  ' ensure we have all bytes available
+                        add     i_count, i_G1                     ' aci_count for bytes we are about to read
+                        sub     i_G1, #4                  wz,wc ' adjust to relative length
+              if_b      jmp     i_fvm_end_processing            ' leave if length is zero
+
+
+i_fvm_calmc
+
+i_fvm_savmc
+i_fvm_delmc
+i_fvm_ldmc
+i_fvm_waits
+                        rdbyte  i_G0, i_signal_ptr                ' read signal
+                        cmp     i_stack_ind, #1           wz,wc ' ensure we have a signal to wait for
+              if_b      jmp     #i_fvm_nodata                   '
+                        rdbyte  i_G1, i_stack_ptr                 ' read signal we are waiting on
+                        tjnz    i_G1, #i_fvm_waits_00             ' branch if the signal we are waiting for is not zero (any signal)
+                        tjnz    i_G0, #i_fvm_waits_end            ' if signal is not zero, we end the wait
+                        jmp     #i_fvm_end_processing           ' if it's still zero, leave
+i_fvm_waits_00
+                        cmp     i_G1, #$FF                wz,wc ' ? waiting for termination
+                        cmpsub  i_G1, i_G0                        ' see if they are equal
+              if_ne     tjz     i_G1, #i_fvm_waits_end            ' if signals are equal and not FF, we end wait
+                        tjnz    i_G1, #i_fvm_end_processing       ' if not equal, we continue wait
+
+                        or      i_flags, FVM_STATE_HLT          ' set halt state
+                        jmp     #i_fvm_end_processing           ' go to halt
+
+i_fvm_waits_end
+                        add     i_count, #1                     ' increment past waits i_opcode
+                        jmp     #i_fvm_end_processing           ' leave
+i_fvm_btime
+                        mov     i_G0, #(BRKT_TIMING_LEN*4)      ' ? available data
+                        call    #i_fvm_checkstack
+                        add     i_count, #(BRKT_TIMING_LEN*4)   ' adjust i_count
+                        mov     i_G0, i_stack_ptr
+                        mov     i_G7, #5                        ' Number of longs to construct
+                        movd    :cache_val, #:timing_cache
+:read_loop              call    #i_fvm_rdlong
+:cache_val              mov     0-0, i_G1
+                        add     :cache_val, :d_inc
+                        add     i_G0, #1
+                        djnz    i_G7, #:read_loop               ' The worst IO alignment possible
+                        rdbyte  i_G1, i_G0                        ' Get pin #
+                        and     i_G1, #%11                      ' Truncate to lowest 2 bits
+                        shl     i_G1, #2                        ' Start to convert into a byte offset, first multiply by 4
+                        mov     i_G7, #5                        ' Next multiply by 5, since each timing is 20 bytes long
+:calc_offset            add     i_G2, i_G1                        ' Accumulate 5 i_G1s in i_G2
+                        djnz    i_G7, #:calc_offset             ' Might be worthwhile to unroll this loop
+                        add     i_G2, i_b_time_ptr
+                        movd    :write_loop, :timing_cache
+                        mov     i_G7, #5
+:get_lock               lockset i_b_time_lck              wc
+              if_c      jmp     #:get_lock
+:write_loop             wrlong  0-0, i_G2
+                        add     :write_loop, :d_inc
+                        add     i_G2, #4
+                        djnz    i_G7, #:write_loop              ' Also really shitty alignment
+:rel_lock               lockclr  i_b_time_lck
+                        jmp     #i_fvm_end_processing           ' leave
+:d_inc        long      1<<9                                  ' value needed to incremend destination by 1
+:timing_cache long      0[BRKT_TIMING_LEN]                    ' Local cache for timing
+i_fvm_bdelt
+'' Delta Format:
+'' Big Endian Long
+'' [Pin#:2][Index:9][Count:9][PAD:12]
+'' Little Endian Long
+'' [PAD:12][Count:9][Index:9][Pin#:2]
+'' Followed by bytes to insert
+                        mov     i_G0, #4
+                        call    #i_fvm_checkstack
+                        add     i_count, #(4)                   ' adjust i_count
+                        call    #i_fvm_rdlong                   ' i_G1 Contains packed delta
+                        mov     i_G2, i_G1
+                        and     i_G2, #:delt_pinmask
+                        mov     i_G3, i_b_data_ptr
+:find_buf               add     i_G3, :buf_len
+                        djnz    i_G2, #:find_buf
+                        mov     i_G2, i_G1
+                        and     i_G2, :delt_indmask
+                        shr     i_G2, #(2+9)
+                        add     i_G3, i_G2                        ' i_G3 contains start address of writes
+                        shr     i_G1, #(9+2)
+                        mov     i_G0, i_stack_ind
+:get_lock               lockset i_b_data_lck              wc
+              if_c      jmp  #:get_lock
+:write_loop '' TODO: Optimize to write longs
+                        rdbyte  i_G2, i_G0
+                        add     i_G0, #1
+                        wrbyte  i_G2, i_G3
+                        add     i_G3, #1
+                        djnz    i_G1, #:write_loop
+:rel_lock               lockclr i_b_data_lck
+                        jmp     #i_fvm_end_processing           ' leave
+:delt_pinmask long      %000000000000_000000000_000000000_11
+:delt_indmask long      %000000000000_000000000_111111111_00
+:delt_cntmask long      %000000000000_111111111_000000000_00
+:buf_len      long      BRKT_BUFFER_LEN
+i_fvm_bwrit
+                        mov     i_G0, #4
+                        call    #i_fvm_checkstack
+                        add     i_count, #(4)                   ' adjust i_count
+                        call    #i_fvm_rdlong                   ' i_G1 now contains our pre-packed req
+                        mov     i_G2, i_G1
+                        and     i_G2, :pin_mask
+                        '' shr  i_G2, #1 we shift left in a moment, so this is unneeded
+                        shl     i_G2, #(2-1)                    ' multiply by 4
+                        add     i_b_req_ptr, i_G2
+:get_lock               lockset i_b_req_lck               wc
+              if_c      jmp     #:get_lock
+                        wrlong  i_G1, i_b_req_ptr
+                        sub     i_b_req_ptr, i_G2
+:rel_lock               lockclr i_b_req_lck
+                        jmp     #i_fvm_end_processing           ' leave
+:pin_mask     long      BRKT_PIN_MASK_CON
+i_fvm_posts
+                        rdbyte  i_G0, i_stack_ptr                 ' read signal to post
+                        cmp     i_stack_ind, #1           wz,wc ' ensure we have data
+              if_b      jmp     #i_fvm_nodata                   '
+                        wrbyte  i_G0, i_signal_ptr                ' post
+
+i_fvm_killw               ' I dont know what I was planning with this kill wait. I'll leave it for if anyone gets an idea.
+
+i_fvm_rdlong
+'' Read the big-endian long that is on the stack into i_G1
+'' i_G2-i_G4 is FUBAR after
+                        rdlong  i_G1, i_stack_ptr                 ' Grab Lower order long
+                        mov     i_stack_ptr, i_G2
+                        and     i_G2, #%11                wz    ' Determine phase of i_stack_ptr
+              if_z      jmp     #i_fvm_rdlong_ret               ' If we are at phase 0 (aligned), take the fast path
+                        mov     i_G3, i_G2
+                        subs    i_G2, #4
+                        add     i_stack_ptr, #4
+                        rdlong  i_G4, i_stack_ptr
+:discard_lsb            shr     i_G1, #8
+                        djnz    i_G3, #:discard_lsb
+                        abs     i_G2, i_G2
+:discard_msb            shl     i_G4, #8
+                        djnz    i_G2, #:discard_msb
+                        or      i_G1, i_G4
+                        sub     i_stack_ptr, #4
+i_fvm_rdlong_ret          ret
+
+i_fvm_checkstack
+'' FVM_checkstack
+''    i_G0 contains length of data requested
+''    if this returns then you got the green light
+
+                        cmp     i_stack_ind, i_G0           wz,wc ' ? - we have enough data
+i_fvm_checkstack_ret
+              if_be     ret                                   ' Y
+                        jmp     #i_fvm_nodata
+
+i_fvm_getdata             ' gets data from either buffer or i_macro area
+
+'' FVM_getdata -
+''    i_G1 should contain length of data requested upon entry
+''    i_G0 will contain the address of first byte if data is available
+''    All i_G2-i_G4 will be FUBAR
+''
+''    HUB access is available immidiately upon return from FVM_getdata
+''
+                                                              ' N - get data from buffer
+                        rdbyte  i_G0, i_bufind_ptr                ' load filled index
+
+                        mov     i_G7, i_G0                        ' load i_G7 with filled index
+                        sub     i_G7, i_buf_proc                  ' subtract index to get length available
+
+                        cmp     i_G7, i_G1                  wz,wc ' ? length available >= length requested (save result for later)
+                        mov     i_G0, i_buf_base                  ' load i_G0 with buffer pointer
+                        add     i_G0, i_buf_proc                  ' go to next process index
+i_fvm_getdata_ret
+              if_ae     ret                                   ' if length available >= length requested, return
+                        xor     i_count, i_count                  ' zero i_count (no data follow through)
+                        jmp     #i_fvm_end_processing           ' otherwise end processing
+
+
+i_fvm_nodata              ' not enough data is on the stack
+i_fvm_stack_error         ' stack overflow/underflow
+i_fvm_err_processing
+i_fvm_end_processing
+                        add     i_buf_proc, i_count               ' add i_count to buffer processed index
+                        and     i_buf_proc, i_buffer_limit        ' cap at limit (2^n - 1)
+                        xor     i_count, i_count                  ' zero i_count
+                        jmp     #i_fvm_process                  ' reloop
+
+
+i_stack_limit   long      FVM_DEFAULT_STACK_SIZE-1
+i_buffer_limit  long      FVM_DEFAULT_BUFFER_SIZE-1
+
+' global resources
+i_pwm_base      long      0       ' PWM table
+i_macro_base    long      0       ' start of i_macro address table
+i_signal_ptr    long      0       ' FVM signal channel
+
+''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+' general registers
+i_G0            long      0
+i_G1            long      0
+i_G2            long      0
+i_G3            long      0
+i_G4            long      0
+i_G5            long      0
+i_G6            long      0
+i_G7            long      0
+'
+''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+' VM components
+i_opcode        long      0       ' current i_opcode processed
+i_count         long      0       ' number of bytes processed
+i_flags         long      0       ' internal VM i_flags
+' stack related variables
+i_stack_base    long      0       ' start of data stack
+i_stack_ind     long      0       ' current index in stack
+i_stack_ptr     long      0       ' calculated at the start of each process
+' interpreter data source
+i_buf_base      long      0       ' buffer ptr
+i_bufind_ptr    long      0       ' buffer index pointer
+i_buf_proc      long      0       ' index of buffer processed
+' i_macro processor data source
+i_macro         long      0       ' start of i_macro (not including header)
+i_mac_len       long      0       ' length of i_macro
+i_mac_ind       long      0       ' i_macro index
+' brkt addresses
+i_b_time_lck    long      0
+i_b_time_ptr    long      0
+i_b_data_lck    long      0
+i_b_data_ptr    long      0
+i_b_req_lck     long      0
+i_b_req_ptr     long      0
+                        FIT
+                        
 CON
 
   FVM_STATE_C   = %0000_0001    ' C flag
