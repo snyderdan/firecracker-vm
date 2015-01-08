@@ -892,12 +892,41 @@ fvm_bdelt
                         subs    G6, #32                       ' Calculate inverse of inverse of phase -(G6 - 32)
                         neg     G6, G6                        ' aka regular phase
                         wrlong  G7, G5                        ' write data back to hubram
+                        mov     G7, G1                        ' Move the extra bits into G7
                         add     G5, #4                        ' Increment destination
                         sub     G0, #4                        ' Decrement amount of bytes to write
                         cmp     G0, #4                  wz, wc' Check if we've got at least another long to write
               if_be     jmp     #:write_last                  ' If not, go to special-cased write last
-:write_loop '' TODO: Optimize to write longs
+:write_loop
+                        call    #fvm_rdlong
+                        add     stack_ptr, #4
+                        mov     G1, G2
+                        shl     G2, G6
+                        or      G7, G2
+                        mov     G3, G6
+                        subs    G3, #32
+                        neg     G3, G3
+                        shr     G1, G3
+                        mov     G1, G7
+                        wrlong  G7, G5
+                        add     G5, #4
+                        sub     G0, #4
+                        cmp     G0, #4                  wz, wc' Check if we've got at least another long to write
+              if_be     jmp     #:write_last                  ' If not, go to special-cased write last
 :write_last
+                        call    #fvm_rdlong
+                        shl     G1, G6
+                        or      G7, G1
+                        rdlong  G2, G5
+                        mov     G3, #0
+                        mov     G4, #%11111111
+:last_mask_loop         or      G3, G4
+                        shl     G4, #8
+                        djnz    G0, #:last_mask_loop
+                        andn    G2, G3
+                        and     G7, G3
+                        or      G7, G2
+                        wrlong  G7, G5
 :rel_lock               lockclr b_data_lck
 
                         jmp     #fvm_end_processing           ' leave
