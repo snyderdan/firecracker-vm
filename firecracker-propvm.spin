@@ -188,7 +188,9 @@ VAR
 
 DAT TestPgms
 
-signalTesting byte      FVM_PUSH_OPCODE, 0, 1, $FE, FVM_POSTS_OPCODE, FVM_POP_OPCODE, 1
+
+signalTesting byte      FVM_PUSH_OPCODE, 0, 1, $FE, FVM_POSTS_OPCODE, FVM_POP_OPCODE, 0, 1
+
 
 PUB Start | n
 
@@ -227,7 +229,7 @@ PUB Start | n
   brkt_tim_lock := @BRKTA_tim_lock
   cognew(@Bottlerocket, 0)
 
-  tester.execute(@signalTesting, 7)
+  tester.execute(@signalTesting, 8)
   'tester.signalTest(254,@fvm_signal,true)
 
 PUB MacroManager | address, s, len1, len2, end
@@ -303,16 +305,13 @@ fvm_process
 ''
 ''
                         mov     stack_ptr, stack_base         ' load base address of stack
-                        add     stack_ptr, stack_ind          ' calculate address of top of stack
-                        mov     G1, #1                        ' minimum length of 1 byte
-                        call    #fvm_getdata                  ' get opcode address
-                        rdbyte  opcode, G0                    ' read opcode
-
+                        add     stack_ptr, stack_limit        ' go to 'bottom' of stack
+                        sub     stack_ptr, stack_ind          ' calculate address of top of stack
+                        call    #fvm_getdata                  ' get opcode 
+                        
 fvm_eval_opcode
-                        mov     G1, #fvm_opcode_table         ' load G1 with opcode table address
-                        add     G1, opcode                    ' add opcode offset
-
-                        jmp     G1                            ' jump to correct index into jump table
+                        add     G0, #fvm_opcode_table         ' add opcode table address to get jump offset
+                        jmp     G0                            ' jump to correct index into jump table
 fvm_opcode_table                                              ' opcodes unavailable on the live input interpreter will be NOPs
                                                               ' OPCODE - AVAILABLE IN THIS FVM (Y/N)
                         jmp     #fvm_nop                      ' NOP   - Y
@@ -351,8 +350,7 @@ fvm_nop
 '' FVM_NOP macro does absolutely nothing but waste time and space.
 ''
 ''
-                        add     count, #1
-                        jmp     #fvm_end_processing
+                        jmp     #fvm_process                  ' jump to process for good alignment
 
 fvm_push
 ''
@@ -360,79 +358,42 @@ fvm_push
 '' bytes that follow are to be pushed to the stack. The macro takes
 '' a minimum of two bytes
 ''
-''
-                        rdbyte  G0, bufind_ptr                ' load filled index
-                        mov     G7, G0                        ' load G7 with filled index
-                        sub     G7, buf_proc                  ' subtract index to get length available
+''                      
+                        call    #fvm_getdata                  ' get first length byte
 
-                        cmp     G7, #3                  wz,wc ' ? length available >= length requested
-              if_b      jmp     #fvm_end_processing           ' N - we reloop and wait
-                        add     buf_proc, #1                  ' increment buffer
-                        and     buf_proc, buffer_limit        ' handle wraparround
-
-                        mov     G0, buf_base
-                        add     G0, buf_proc
-
-                        rdbyte  G1, G0                        ' read length into G1
-                        add     buf_proc, #1                  ' increment buffer
-                        and     buf_proc, buffer_limit        ' ? wrap around
-
-                        mov     G0, buf_base
-                        add     G0, buf_proc
+                        mov     G1, G0                        ' copy first byte into G1
                         shl     G1, #8                        ' shift into upper 8 bits
-                        ' time wasted
-                        rdbyte  G2, G0                        ' read lower length byte
-                        or      G1, G2                        ' construct length in G1
-                        add     stack_ind, G1                 ' calculate new stack index
+                        call    #fvm_getdata                  ' get second length byte
 
-                        sub     G1, #1                  wc    ' adjust to relative length
-              if_nc     cmp     stack_limit, stack_ind  wc    ' ? - (stack limit < stack index) OR (length == 0)
-              if_c      jmp     #fvm_push_01                  ' Y - no data gets pushed
-
-                        add     buf_proc, #1                  ' increment buffer
-                        and     buf_proc, buffer_limit        ' handle wrap around
+                        or      G1, G0                        ' construct length in G1
+                        sub     G1, #1                  wz,wc ' decrement to relative
+              if_b      jmp     #fvm_end_processing           ' return if length specified was zero 
+                
 fvm_push_00
+                        call    #fvm_getdata                  ' read byte from input
+                        call    #fvm_pushstack                ' push byte to stack
+              if_z      jmp     #fvm_end_processing           ' see if we are done
+                        sub     G1, #1                  wz    ' decrement byte count
+                        jmp     #fvm_push_00                  ' reloop      
 
-                        rdbyte  G7, bufind_ptr                ' read buffer index
-                        sub     G7, buf_proc            wz,wc ' calculate length available
-                                                              ' ? - any data available
-              if_be     jmp     #fvm_push_00                  ' N - reloop
-
-                        mov     G0, buf_base
-                        add     G0, buf_proc
-                        add     buf_proc, #1                  ' increment buffer
-                        and     buf_proc, buffer_limit        ' handle wrap around
-
-                        rdbyte  G3, G0                        ' read next byte
-                        sub     G1, #1                  wz,wc ' decrement counter
-                        ' time wasted
-                        wrbyte  G3, stack_ptr                 ' store in stack
-                        add     stack_ptr, #1                 ' increment stack ptr
-              if_ae     jmp     #fvm_push_00                  ' reloop for data length
-                        jmp     #fvm_end_processing
-
-fvm_push_01
-                        tjz     G1, #fvm_end_processing       ' length of zero - lets go home
-                        jmp     #fvm_stack_error              ' if length is not zero, then we have a stack error
 
 fvm_pop
 ''
-'' FVM_POP macro is followed by a length byte and specifies
+'' FVM_POP macro is followed by 2 length bytes and specifies
 '' how many bytes are popped from the stack. The pop simply decrements
 '' the stack pointer by the length field.
 ''
 ''
-                        mov     G1, #2                        ' ensure we have a length byte present
-                        call    #fvm_getdata                  ' ^
-                        add     G0, #1                        ' go to length byte
-                        add     count, #2                     ' increment by 2
-                        nop
-                        nop
-                        rdbyte  G0, G0                        ' read length into G0
-                        cmpsub  stack_ind, G0           wc    ' compare and subtract if we can
-              if_c      jmp     #fvm_end_processing           ' if index >= length popped, exit successful
-                        jmp     #fvm_stack_error              ' otherwise, raise stack error
+                        call    #fvm_getdata                  ' get first length byte
 
+                        mov     G1, G0                        ' copy into G1
+                        shl     G1, #8                        ' shift into upper 8 bits
+                        call    #fvm_getdata                  ' get second length byte
+
+                        or      G1, G0                        ' construct length to G1
+                        cmpsub  stack_ind, G1           wz,wc ' subtract length from stack index
+              if_ae     jmp     #fvm_end_processing           ' leave
+                        jmp     #fvm_stack_error              ' if negative, we popped too much
 
 fvm_write
 ''
@@ -441,28 +402,28 @@ fvm_write
 '' (pins 0-15). The PWM signal generated is not fixed duty cycle.
 ''
 ''
-                        mov     G0, #2
-                        call    #fvm_checkstack
+                        cmp     stack_ind, #2           wz,wc ' ? - have two bytes available
+                        
+                        rdbyte  G1, stack_ptr                 ' read pin in the mean time for alignment
+              if_b      jmp     #fvm_nodata                   ' N - error
+                        add     stack_ptr, #1                 ' go to next stack value
 
-                        rdbyte  G1, stack_ptr                 ' read pin number
-                        mov     G2, pwm_base                  ' load pwm base
-                        sub     stack_ptr, #1                 ' go to value
-                        rdbyte  G3, stack_ptr                 ' read value into G3
-                        and     G1, #$0F                      ' cap at 4 bits (16 pins)
+                        rdbyte  G0, stack_ptr                 ' read value
+                        and     G1, #$0F                      ' cap pin at 4 bits (16 pins)
                         shl     G1, #2                        ' multiply by 4 (pin table offset)
 
-                        add     G2, G1                        ' go to offset in PWM table
-                        mov     G0, G3                        ' copy value to G0
-                        shl     G0, #8                        ' shift up 8 bits
-                        or      G3, G0                        ' merge all 16-bits
+                        ' following process scales 8-bit to 32-bit PWM (0x01010101 * value) 
+                        mov     G2, G0                        ' copy value to G3
+                        shl     G2, #8                        ' shift up 8 bits
+                        or      G0, G2                        ' merge all 16-bits
+                        mov     G2, G0                        ' repeat but with 16-bits
+                        
+                        shl     G2, #16                       ' shift into upper 16-bits
+                        or      G0, G2                        ' construct full 32-bit number
+                        mov     G3, pwm_base                  ' copy PWM table base into G2
+                        add     G3, G1                        ' go to offset in PWM table
 
-                        mov     G0, G3                        ' repeat but with 16-bits
-                        shl     G0, #16
-                        or      G3, G0
-                        nop                                   ' above process scales 8-bit to 32-bit PWM (0x01010101 * value)
-
-                        wrlong  G3, G2                        ' store value in table
-                        add     count, #1                     ' add to count
+                        wrlong  G2, G3                        ' store value in table
                         jmp     #fvm_end_processing           ' exit
 
 
@@ -473,8 +434,9 @@ fvm_delay
 '' delay precisely.
 ''
 ''
-                        mov     G0, #4
-                        call    #fvm_checkstack
+                        cmp     stack_ind, #4           wz,wc ' ? - 4 bytes available
+              if_b      jmp     #fvm_nodata                   ' N - error
+              
                         ' read byte by byte to avoid alignment issues
                         rdbyte  G1, stack_ptr                 ' read byte
                         shl     G1, #24                       ' shift up
@@ -513,15 +475,11 @@ fvm_inc
 '' and increments it by 1.
 ''
 ''
-                        mov     G0, #1
-                        call    #fvm_checkstack
-
-                        rdbyte  G0, stack_ptr                 ' load byte
+                        call    #fvm_popstack                 ' get operand
                         add     G0, #1                        ' increment
-                        add     count,#1
-                        wrbyte  G0, stack_ptr                 ' store
+                        call    #fvm_pushstack                ' put back
 
-                         jmp    #fvm_end_processing           ' exit
+                        jmp     #fvm_end_processing           ' exit
 
 fvm_dec
 ''
@@ -529,13 +487,9 @@ fvm_dec
 '' and decrements it by 1.
 ''
 ''
-                        mov     G0, #1
-                        call    #fvm_checkstack
-
-                        rdbyte  G0, stack_ptr                 ' load byte
+                        call    #fvm_popstack                 ' get operand
                         sub     G0, #1                        ' decrement
-                        add     count,#1
-                        wrbyte  G0, stack_ptr                 ' store
+                        call    #fvm_pushstack                ' put back
 
                         jmp     #fvm_end_processing           ' exit
 
@@ -545,17 +499,13 @@ fvm_add
 '' and finally pushes the sum back to the stack
 ''
 ''
-                        rdbyte  G0, stack_ptr
-                        sub     stack_ptr, #1
-                        cmp     stack_ind, #2           wz,wc
-                        rdbyte  G1, stack_ptr
-              if_b      jmp     #fvm_nodata                   ' ensure data is present before writing
-                        add     G0, G1
-                        wrbyte  G0, stack_ptr
-                        add     count,#1
-                        sub     stack_ind, #1
+                        call    #fvm_popstack                 ' get operand
+                        mov     G1, G0                        ' move to G1
+                        call    #fvm_popstack                 ' get next operand
+                        add     G0, G1                        ' add
+                        call    #fvm_pushstack                ' put back
 
-                        jmp     #fvm_end_processing
+                        jmp     #fvm_end_processing           ' exit
 fvm_sub
 ''
 '' FVM_SUB macro pops the top two bytes on the stack, subtracts
@@ -564,124 +514,115 @@ fvm_sub
 '' to the stack
 ''
 ''
-                        rdbyte  G0, stack_ptr
-                        sub     stack_ptr, #1
-                        cmp     stack_ind, #2           wz,wc
-                        rdbyte  G1, stack_ptr
-              if_b      jmp     #fvm_nodata
-                        sub     G0, G1
-                        wrbyte  G0, stack_ptr
-                        add     count, #1
-                        sub     stack_ind, #1
+                        call    #fvm_popstack                 ' get operand
+                        mov     G1, G0                        ' move to G1
+                        call    #fvm_popstack                 ' get next operand
+                        sub     G1, G0                        ' subtract
+                        mov     G0, G1                        ' place into G0 for writeback
+                        call    #fvm_pushstack                ' put back
 
                         jmp     #fvm_end_processing
 
 fvm_cmp
-                        rdbyte  G0, stack_ptr
-                        sub     stack_ptr, #1
-                        cmp     stack_ind, #2           wz,wc
-                        rdbyte  G1, stack_ptr
-              if_b      jmp     #fvm_nodata
-                        add     count, #1
+                        cmp     stack_ind, #2                 ' ? - do we have two things to compare
+              if_b      jmp     #fvm_nodata                   ' N - error
 
-                        cmp     G0, G1                  wz,wc
+                        rdbyte  G0, stack_ptr                 ' read first operand
+                        add     stack_ptr, #1                 ' go to next byte
+                        rdbyte  G1, stack_ptr                 ' read second operand
+
+                        cmp     G0, G1                  wz,wc ' perform comparison
                         muxc    flags, #FVM_STATE_C
                         muxz    flags, #FVM_STATE_Z
                         jmp     #fvm_end_processing
 
 fvm_or
-                        rdbyte  G0, stack_ptr
-                        sub     stack_ptr, #1
-                        cmp     stack_ind, #2           wz,wc
-                        rdbyte  G1, stack_ptr
-              if_b      jmp     #fvm_nodata
-                        or      G0, G1
-                        wrbyte  G0, stack_ptr
-                        add     count, #1
-                        sub     stack_ind, #1
+                        call    #fvm_popstack                 ' get operand
+                        mov     G1, G0                        ' move to G1
+                        call    #fvm_popstack                 ' get next operand
+                        or      G0, G1                        ' OR together
+                        call    #fvm_pushstack                ' put back
 
                         jmp     #fvm_end_processing
 
 fvm_and
-                        rdbyte  G0, stack_ptr
-                        sub     stack_ptr, #1
-                        cmp     stack_ind, #2           wz,wc
-                        rdbyte  G1, stack_ptr
-              if_b      jmp     #fvm_nodata
-                        and     G0, G1
-                        wrbyte  G0, stack_ptr
-                        add     count, #1
-                        sub     stack_ind, #1
+                        call    #fvm_popstack                 ' get operand
+                        mov     G1, G0                        ' move to G1
+                        call    #fvm_popstack                 ' get next operand
+                        and     G0, G1                        ' AND together
+                        call    #fvm_pushstack                ' put back
 
                         jmp     #fvm_end_processing
 
 fvm_test
-                        rdbyte  G0, stack_ptr
-                        sub     stack_ptr, #1
-                        cmp     stack_ind, #2           wz,wc
-                        rdbyte  G1, stack_ptr
-              if_b      jmp     #fvm_nodata
-                        add     count, #1
+                        cmp     stack_ind, #2                 ' ? - do we have two things to compare
+              if_b      jmp     #fvm_nodata                   ' N - error
 
-                        test    G0, G1                  wz,wc
+                        rdbyte  G0, stack_ptr                 ' read first operand
+                        add     stack_ptr, #1                 ' go to next byte
+                        rdbyte  G1, stack_ptr                 ' read second operand
+
+                        test    G0, G1                  wz,wc ' perform comparison
                         muxc    flags, #FVM_STATE_C
                         muxz    flags, #FVM_STATE_Z
                         jmp     #fvm_end_processing
 
 fvm_not
-                        mov     G0, #1
-                        call    #fvm_checkstack
-
-                        rdbyte  G0, stack_ptr
+                        call    #fvm_popstack                 ' get data into G0
                         xor     G0, #$FF
-                        add     count, #1
-                        wrbyte  G0, stack_ptr
+                        call    #fvm_pushstack                ' write back
 
                         jmp     #fvm_end_processing
 
 fvm_swap
-                        rdbyte  G0, stack_ptr
-                        sub     stack_ptr, #1
-                        cmp     stack_ind, #2           wz,wc
-                        rdbyte  G1, stack_ptr
-              if_b      jmp     #fvm_nodata
-                        add     count, #1
-                        wrbyte  G0, stack_ptr
-                        add     stack_ptr, #1
-                        nop
-                        wrbyte  G1, stack_ptr
-
+''
+'' FVM_swap -
+''    swaps the top two bytes on the stack.
+''    Before:
+''      (TOP)   - X
+''      (TOP-1) - Y
+''    After:
+''      (TOP)   - Y
+''      (TOP-1) - X
+''
+                        call    #fvm_popstack                 ' pop top
+                        mov     G1, G0                        ' store in G1
+                        call    #fvm_popstack                 ' pop top-1
+                        mov     G2, G0                        ' store in G2
+                        mov     G0, G1                        ' push top
+                        call    #fvm_pushstack
+                        mov     G0, G2                        ' push top-1
+                        call    #fvm_pushstack
+                         
                         jmp     #fvm_end_processing
 
 fvm_dup
-                        mov     G1, #2
-                        call    #fvm_getdata
+''
+'' FVM_dup -
+''    Duplicates specified number of bytes on the stack.
+''    Dup takes a one byte length field allowing for up to 256
+''    bytes to be duplicated at a time. The duplication starts
+''    at the furthest number from the top of the stack
+''    and pushes that number first to clone the top of the stack
+''   
+                        call    #fvm_getdata                  ' get number of bytes to duplicate
 
-                        add     G0, #1                        ' go to length count byte
-                        mov     G2, stack_ind                 ' copy stack index into G2
+                        mov     G1, G0                  wz    ' G1 now contains number of bytes to duplicate 
+              if_z      jmp     #fvm_end_processing           ' leave if result is zero
+                        cmp     stack_ind, G1           wz,wc ' ? - enough data present on stack        
+              if_b      jmp     #fvm_nodata                   ' N - error
 
-                        rdbyte  G1, G0                        ' read length of data and test for zero
-                        cmpsub  G2, G1                  wc    ' ? enough data present
-              if_nc     jmp     #fvm_nodata                   ' N error
-
-                        add     stack_ptr, G2                 ' go to new upper limit
-                        cmp     stack_ptr, #255         wz,wc ' ? over stack limit
-              if_a      jmp     #fvm_stack_error              ' Y
-                        sub     stack_ptr, G2                 ' N
-
-                        add     G2, stack_base                ' Go to bottom of values to duplicate
-                        add     count, #2
-                        tjz     G1, #fvm_end_processing       ' leave if zero
+                        sub     G1, #1                        ' decrement to relative
+                        mov     G2, stack_ptr                 ' load G2 with stack pointer
+                        add     G2, G1                        ' go to bottom of duplicated numbers
 
 fvm_dup_00
                         rdbyte  G0, G2                        ' read byte
-                        add     G2, #1                        ' go to next byte to copy
-                        add     stack_ind, #1                 ' increment stack index
-                        wrbyte  G0, stack_ptr                 ' write byte in upper area
-                        add     stack_ptr, #1                 ' go to next write location
-                        djnz    G1, #fvm_dup_00               ' reloop if not zero
-
-                        jmp     #fvm_end_processing
+                        sub     G2, #1                        ' go to next byte to duplicate
+                        sub     G1, #1                  wz,wc ' ? - more bytes available
+                        call    #fvm_pushstack                ' push byte to stack
+              if_b      jmp     #fvm_end_processing           ' N - leave normally
+                        jmp     #fvm_dup_00                   ' Y - reloop
 
 
 fvm_if
@@ -691,8 +632,8 @@ fvm_if
 '' If condition is true then the next opcode is executed. If the condition is false
 '' then the next opcode is skipped
 ''
-                        mov     G0,#1
-                        call    #fvm_checkstack               ' ensure we have data available
+                        cmp     stack_ind, #1           wz,wc ' ? - have data for if
+              if_b      jmp     #fvm_nodata                   ' N - error
 
                         shr     flags,#1                wc,nr ' set carry flag
               if_c      xor     flags,#%0011            wz,nr ' set zero flag depending on carry
@@ -707,12 +648,15 @@ fvm_if_wa     if_never  jmp     #fvm_if_end                   ' work area where 
 fvm_if_op     if_never  jmp     #fvm_if_end                   ' jump to address (no cond code)
                                                               ' if the condition is true, we continue as normal.
                                                               ' if it is not true, then we skip the next command
-                        add     count, #1                     ' add count for following opcode
+                        call    #fvm_getdata                  ' read next opcode to get rid of it
 fvm_if_end
-                        add     count, #1                     ' add count for IF opcode
                         jmp     #fvm_end_processing           ' exit
 
 fvm_jmp
+''
+'' FVM_jmp opcode sets the program counter of the macro currently being executed
+'' to the 16-bit value on top of the stack (MSB on top)
+''
                         mov     G0, #2
                         call    #fvm_checkstack
 
@@ -723,12 +667,14 @@ fvm_jmp
                         or      G1, G2                        ' construct address in G1
                         mov     mac_ind, G1                   ' set new code point
 
-                        xor     count, count                  ' zero count since we are resetting our program pointer
                         cmp     mac_ind, mac_len              ' ? index pointing past macro
               if_b      jmp     #fvm_end_processing           ' N
                         jmp     #fvm_err_processing           ' Y
 
 fvm_jmpr
+''
+'' FVM_jmpr opcode adds the signed 16 bit value on top of the stack to the program counter
+''
                         mov     G0, #2                        '
                         call    #fvm_checkstack               '
 
@@ -738,14 +684,17 @@ fvm_jmpr
                         rdbyte  G2, stack_ptr
                         or      G1, G2
                         shl     G1, #16                       ' shift relative number up 16 bits
+                        
                         sar     G1, #16                       ' sign extend value
                         adds    mac_ind, G1                   ' perform signed addition
               if_c      jmp     #fvm_err_processing           ' ensure we are still in memory limits
                         cmp     mac_len, mac_ind        wz,wc '
+                        
               if_ae     jmp     #fvm_err_processing           ' ensure we are within macro limit
                         mov     G0, macro                     ' load macro base
                         add     G0, mac_ind                   ' go to processing point
                         cmp     macro, G0               wz,wc '
+                        
               if_b      jmp     #fvm_err_processing           ' ensure we are within macro limit
                         jmp     #fvm_end_processing           ' leave
 
@@ -756,25 +705,18 @@ fvm_retmc
 
 fvm_ldmc
 fvm_waits
-                        rdbyte  G0, signal_ptr                ' read signal
-                        cmp     stack_ind, #1           wz,wc ' ensure we have a signal to wait for
-              if_b      jmp     #fvm_nodata                   '
-                        rdbyte  G1, stack_ptr                 ' read signal we are waiting on
-                        tjnz    G1, #fvm_waits_00             ' branch if the signal we are waiting for is not zero (any signal)
-                        tjnz    G0, #fvm_waits_end            ' if signal is not zero, we end the wait
-                        jmp     #fvm_end_processing           ' if it's still zero, leave
+                        call    #fvm_popstack                 ' read data from stack
 fvm_waits_00
-                        cmp     G1, #$FF                wz,wc ' ? waiting for termination
-                        cmpsub  G1, G0                        ' see if they are equal
-              if_ne     tjz     G1, #fvm_waits_end            ' if signals are equal and not FF, we end wait
-                        tjnz    G1, #fvm_end_processing       ' if not equal, we continue wait
+                        rdbyte  G1, signal_ptr                ' read signal byte
+                        cmp     G0, G1                  wz    ' ? - equal
+              if_z      jmp     #fvm_end_processing           ' Y - leave
 
-                        or      flags, FVM_STATE_HLT          ' set halt state
-                        jmp     #fvm_end_processing           ' go to halt
+                        cmp     G1, #$FF                wz    ' ? - termination
+              if_z      jmp     #fvm_end_processing           ' Y - ...we'll figure out what to do later
+                        jmp     #fvm_waits_00                 ' N - reloop
+                        
 
-fvm_waits_end
-                        add     count, #1                     ' increment past waits opcode
-                        jmp     #fvm_end_processing           ' leave
+                        
 fvm_btime
                         mov     G0, #(BRKT_TIMING_LEN*4)      ' ? available data
                         call    #fvm_checkstack
@@ -956,6 +898,7 @@ fvm_posts
                         cmp     stack_ind, #1           wz,wc ' ensure we have data
               if_b      jmp     #fvm_nodata                   '
                         wrbyte  G0, signal_ptr                ' post
+                        jmp     #fvm_end_processing
 
 fvm_killw               ' I dont know what I was planning with this kill wait. I'll leave it for if anyone gets an idea.
 
@@ -979,51 +922,81 @@ fvm_rdlong
                         sub     stack_ptr, #4                 ' Reset stack ptr, since maybe we didn't want to consume all of the data
 fvm_rdlong_ret          ret
 
+
 fvm_checkstack
+''
 '' FVM_checkstack
-''    G0 contains length of data requested
-''    if this returns then you got the green light
-
-                        cmp     stack_ind, G0           wz,wc ' ? - we have enough data
+''    ensures number of bytes specified in G0 are present on stack
+''
+                        cmp     stack_ind, G0           wz,wc ' ? - enough data present
 fvm_checkstack_ret
-              if_be     ret                                   ' Y
-                        jmp     #fvm_nodata
+              if_ae     ret                                   ' Y - return
+                        jmp     #fvm_nodata                   ' N - error
+              
 
-fvm_getdata             ' gets data from either buffer or macro area
+fvm_popstack
+''
+'' FVM_popstack
+''    G0 will contain byte read from stack
+''    HUB access available upon return
+''    optimal alignment is to have HUB access on the call
+''
+                        cmp     stack_ind, #1           wz,wc ' ? - A byte available to pop
+              if_b      jmp     #fvm_nodata                   ' N - send error
+                        sub     stack_ind, #1                 ' decrement index 
+              
+                        rdbyte  G0, stack_ptr                 ' read byte on stack
+                        add     stack_ptr, #1                 ' go up
+fvm_popstack_ret
+                        ret   
 
+fvm_pushstack
+''
+'' FVM_pushstack
+''    G0 will contain the byte to push to stack
+''    HUB access available upon return
+''    optimal alignment is to have HUB access on the call
+''
+                        cmp     stack_ind, stack_limit  wz,wc ' ? - space available to push to
+              if_ae     jmp     #fvm_stack_error              ' N - send error
+                        sub     stack_ptr, #1                 ' decrement pointer
+              
+                        wrbyte  G0, stack_ptr                 ' write byte to stack
+                        add     stack_ind, #1                 ' go up
+fvm_pushstack_ret
+                        ret
+
+
+fvm_getdata
+''
 '' FVM_getdata -
-''    G1 should contain length of data requested upon entry
-''    G0 will contain the address of first byte if data is available
-''    G7 is FUBAR
+''    G0 will contain the next byte from the input buffer
+''    HUB access available upon return
+''    optimal alignment is to have HUB access in 4 cycles from the call
 ''
-''    HUB access is available immidiately upon return from FVM_getdata
-''
-                                                              ' N - get data from buffer
                         rdbyte  G0, bufind_ptr                ' load filled index
+                        sub     G0, buf_proc                  ' subtract index to get length available
+                        cmp     G0, #1                  wz,wc ' ? - a byte available to read
 
-                        mov     G7, G0                        ' load G7 with filled index
-                        sub     G7, buf_proc                  ' subtract index to get length available
-
-                        cmp     G7, G1                  wz,wc ' ? length available >= length requested (save result for later)
+              if_b      jmp     fvm_getdata                   ' N - and so we wait. 
                         mov     G0, buf_base                  ' load G0 with buffer pointer
                         add     G0, buf_proc                  ' go to next process index
+                        add     buf_proc, #1                  ' increment processed index
+
+                        rdbyte  G0, G0                        ' grab byte
+                        and     buf_proc, buffer_limit        ' handle wrap around  
 fvm_getdata_ret
-              if_ae     ret                                   ' if length available >= length requested, return
-                        xor     count, count                  ' zero count (no data follow through)
-                        jmp     #fvm_end_processing           ' otherwise end processing
+                        ret
 
 
 fvm_nodata              ' not enough data is on the stack
 fvm_stack_error         ' stack overflow/underflow
 fvm_err_processing
 fvm_end_processing
-                        add     buf_proc, count               ' add count to buffer processed index
-                        and     buf_proc, buffer_limit        ' cap at limit (2^n - 1)
-                        xor     count, count                  ' zero count
                         jmp     #fvm_process                  ' reloop
 
 
-stack_limit   long      FVM_DEFAULT_STACK_SIZE-1
+stack_limit   long      FVM_DEFAULT_STACK_SIZE
 buffer_limit  long      FVM_DEFAULT_BUFFER_SIZE-1
 
 ' global resources
@@ -1580,7 +1553,7 @@ i_fvm_rdlong
                         or      i_G1, i_G4
                         sub     i_stack_ptr, #4
 i_fvm_rdlong_ret          ret
-
+          
 i_fvm_checkstack
 '' FVM_checkstack
 ''    i_G0 contains length of data requested
@@ -1589,7 +1562,7 @@ i_fvm_checkstack
                         cmp     i_stack_ind, i_G0           wz,wc ' ? - we have enough data
 i_fvm_checkstack_ret
               if_be     ret                                   ' Y
-                        jmp     #i_fvm_nodata
+                        jmp     #i_fvm_nodata             
 
 i_fvm_getdata             ' gets data from either buffer or i_macro area
 

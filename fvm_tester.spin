@@ -52,8 +52,9 @@ PUB validateSignal(sendSignal, sigaddr) | sig
   byte[bufferAddr+byte[bufferIndexPtr]+3] := sendSignal ' data to push
   byte[bufferAddr+byte[bufferIndexPtr]+4] := 26         ' POSTS opcode
   byte[bufferAddr+byte[bufferIndexPtr]+5] := 2          ' POP opcode
-  byte[bufferAddr+byte[bufferIndexPtr]+6] := 1          ' number of bytes to pop 
-  byte[bufferIndexPtr] := (byte[bufferIndexPtr]+7) // 256
+  byte[bufferAddr+byte[bufferIndexPtr]+6] := 0          ' number of bytes to pop
+  byte[bufferAddr+byte[bufferIndexPtr]+7] := 1          ' number of bytes to pop 
+  byte[bufferIndexPtr] := (byte[bufferIndexPtr]+8) // 256
   
   waitcnt(80000+cnt)
   
@@ -65,8 +66,9 @@ PUB validateSignal(sendSignal, sigaddr) | sig
   byte[bufferAddr+byte[bufferIndexPtr]+3] := 0          ' data to push
   byte[bufferAddr+byte[bufferIndexPtr]+4] := 26         ' POSTS opcode
   byte[bufferAddr+byte[bufferIndexPtr]+5] := 2          ' POP opcode
-  byte[bufferAddr+byte[bufferIndexPtr]+6] := 1          ' number of bytes to pop 
-  byte[bufferIndexPtr] := (byte[bufferIndexPtr]+7) // 256
+  byte[bufferAddr+byte[bufferIndexPtr]+6] := 0          ' number of bytes to pop 
+  byte[bufferAddr+byte[bufferIndexPtr]+7] := 1          ' number of bytes to pop 
+  byte[bufferIndexPtr] := (byte[bufferIndexPtr]+8) // 256
 
   if sig == sendSignal
     return true
@@ -95,4 +97,5 @@ PUB signalTest(nSignals, sigaddr, feedback) | sig
       if feedback
         pst.Str(string(13, "Signal validated: "))
         pst.Hex(sig,2)
+      sig--
     
