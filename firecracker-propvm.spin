@@ -437,22 +437,8 @@ fvm_delay
                         cmp     stack_ind, #4           wz,wc ' ? - 4 bytes available
               if_b      jmp     #fvm_nodata                   ' N - error
               
-                        ' read byte by byte to avoid alignment issues
-                        rdbyte  G1, stack_ptr                 ' read byte
-                        shl     G1, #24                       ' shift up
-                        add     stack_ptr, #1                 ' go to next byte
-                        rdbyte  G2, stack_ptr                 ' read byte
-                        shl     G2, #16                       ' shift up
-                        add     stack_ptr, #1                 ' go to next byte
-                        rdbyte  G3, stack_ptr                 ' read byte
-                        shl     G3, #8                        ' shift up
-                        add     stack_ptr, #1                 ' go to next byte
-                        rdbyte  G4, stack_ptr                 ' read byte
-                        or      G4, G3
-                        or      G4, G2
-
-                        or      G4, G1                        ' construct number in G4
-                        sub     G4, #2                  wz,wc ' adjust remaining time
+                        call    #fvm_rdlong                   ' construct number in G1
+                        sub     G1, #2                  wz,wc ' adjust remaining time
               if_b      jmp     #fvm_end_processing           ' if time < 2 we leave
                         mov     G0,#13                        ' otherwise, delay
 fvm_delay_00                                                  ' fill in to 2us
@@ -906,7 +892,7 @@ fvm_rdlong
 '' Read the big-endian long that is on the stack into G1
 '' G2-G4 is FUBAR after
                         rdlong  G1, stack_ptr                 ' Grab Lower order long
-                        mov     stack_ptr, G2
+                        mov     G2, stack_ptr
                         and     G2, #%11                wz    ' Determine phase of stack_ptr
               if_z      jmp     #fvm_rdlong_ret               ' If we are at phase 0 (aligned), take the fast path
                         mov     G3, G2                        ' Otherwise, make a copy of phase
