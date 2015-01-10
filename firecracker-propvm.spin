@@ -68,14 +68,15 @@
 ''      essentially a NOP. All other signals are free to use.
 ''
 '' Macro memory structure -
-''    - For each macro in RAM, there are five leading bytes that are of special use.
-''    - The first two bytes is for allocation. The leading bit is whether or not that
-''      memory location is in use. The remaining 15-bits are the length of the allocated
-''      space if the leading bit is set to 1.
-''    - The remaining 3 bytes are for macro use. When a macro is called from a macro
-''      the macro number of the caller is placed in the first of the three bytes of the callee.
-''      The next two bytes are for the callers program pointer. (the program pointer is of the
-''      code section of the macro. Which means PC=0 is PC=macro_base+5)
+''    - For each macro in RAM, there are six leading bytes that are of special use.
+''    - The first word is for allocation. The leading bit is whether or not that
+''      memory location is in use. The remaining 15-bits are the length of this area or
+''      it's length when it was previously allocated. 
+''    - The next 4 bytes are for macro use. The first byte is null and just used
+''      to maintain word alignment. The next byte is the macro number of the caller.
+''      The next word is the program counter of the caller to return to.
+''      (the program pointer is of the code section of the macro. Which means PC=0 is PC=macro_base+5)
+''      
 ''
 '' What needs to be done -
 ''    - Create a test with another board to test SPI
@@ -98,6 +99,7 @@ CON
   _CLKFREQ = 80_000_000
 
   FVM_DEFAULT_NUM_MACROS  = 256
+  FVM_MACRO_AREA_SIZE     = 4096
   FVM_DEFAULT_STACK_SIZE  = 1024
   FVM_DEFAULT_BUFFER_SIZE = 256
   FVM_DEFAULT_NUM_OUTPUTS = 16
@@ -160,6 +162,8 @@ VAR
 
   long FVM_macros[FVM_DEFAULT_NUM_MACROS]     ' macro table (first two bytes is EEPROM address and last two bytes are RAM address)
 
+  word  FVM_macro_wa[FVM_MACRO_AREA_SIZE]      ' where macros get loaded to and such
+
   byte FVM_buffer[FVM_DEFAULT_BUFFER_SIZE]    ' input buffer
 
   byte FVM_inpdat_stack[FVM_DEFAULT_STACK_SIZE] ' input data stack
@@ -209,7 +213,10 @@ PUB Start | n
   stack_base := @FVM_macdat_stack
   bufind_ptr := @FVM_buffer_index
   macro_base := @FVM_macros
+  macro_area := @FVM_macro_wa
   signal_ptr := @FVM_signal
+  mm_addr    := @FVM_manager_request_addr
+  mm_req     := @FVM_manager_request
 
   cognew(@fvm_entry, 0)
 
@@ -232,7 +239,7 @@ PUB Start | n
   tester.execute(@signalTesting, 8)
   'tester.signalTest(254,@fvm_signal,true)
 
-PUB MacroManager | address, s, len1, len2, end
+PUB MacroManager | address, s, len1, len2, end, smallest
 
   repeat while (true)
 
@@ -248,36 +255,54 @@ PUB MacroManager | address, s, len1, len2, end
 
       if (!address)
         FVM_manager_request := -1                       ' notify that macro is undefined
-        waitcnt(8000 + cnt)                             ' wait
-        FVM_manager_request := 0                        ' clear error
         next
 
       address >>=  16                                   ' get EEPROM address
 
       eeprom.ToRam(@len1, @len1+1,address)              ' read descriptor (alloc bit and 15-bit length)
 
-      if (!(len1 & $10000))                             ' ensure it's allocated in EEPROM
+      if (!(len1 & $8000))                              ' ensure it's allocated in EEPROM
         FVM_manager_request := -1
-        waitcnt(8000 + cnt)
-        FVM_manager_request := 0
         next
 
-      len1 &= $FFFF                                     ' extract length
+      len1 &= $7FFF                                     ' extract length
 
       s    := @FVM_macros                               ' selected RAM address
 
-      end  := @FVM_macros + 0-1                         ' end address ' What constant should be added here?
+      end  := @FVM_macros + FVM_MACRO_AREA_SIZE         ' end address
 
       len2 := word[s]                                   ' length of RAM block
 
-      repeat while (len2 and (s < end))                 ' search for empty RAM block
-        s += len2 + 1
-        len2 := word[s]
+      smallest := 0                                     ' points to smallest open RAM block
 
-      if (!len2 and ((end - s) => len1))
-        eeprom.ToRam(s, s+len1, address)
+      repeat while ((len2 <> 0) and (s < end))          ' search all allocated RAM blocks
+                                   
+        repeat while ((len2 & $8000) and (s < end))     ' search for every open allocation 
+          s += (len2 & $7FFF) + 6                       ' skip over ram block and descriptor                        
+          len2 := word[s]
+
+        if len2 == 0
+          quit
+
+        len2 &= $7FFF                                   ' extract length of block                        
+
+        if (len2 => len1)                               ' if the length of this block is large enough, continue
+          if (!smallest)
+            smallest := s                               ' if smallest is not set, set it as this block
+          if (len2 < word[smallest])                    ' if this block is smaller than our current smallest, but still large enough for the macro
+            smallest := s                               ' set this block as the smallest area                  
+                                                     
+      if (!smallest and ((end - s) => len1))            ' if no good blocks were found, but we have space at this empty spot, write to it 
+        eeprom.ToRam(s, s+len1+6, address)              ' write macro to area
+        word[s] := len1                                 ' set length of area                                                        ' 
         FVM_manager_request := 0
-        next
+        quit
+        
+      elseif (smallest)
+        eeprom.ToRam(smallest+2, smallest+len1+6, address+2) ' write to new allocation block, but maintain length of this area
+        word[smallest] |= $8000                         ' indicate this block is allocated
+        FVM_manager_request := 0                        ' indicate we are done
+        quit                                                                        
 
     elseif (FVM_manager_request == MM_SAVE_MACRO)
     elseif (FVM_manager_request == MM_DEL_MACRO)
@@ -686,22 +711,81 @@ fvm_jmpr
 
 
 fvm_calmc
+''
+'' FVM_calmc is the call macro opcode. It takes a 1-byte macro number as an argument
+''    and calls the corresponding macro if it exists
+''
+                        call    #fvm_popstack                 ' read macro number
+                        call    #fvm_pushstack                ' put it back
+
+                        mov     G1, G0                        ' copy macro number into G1
+                        shl     G1, #2                        ' adjust to long offset in table
+                        add     G1, macro_base                ' add base of macro table
+                        
+                        rdlong  G2, G1                  wz    ' read macro address
+              if_z      jmp     #fvm_err_processing           ' if there are no addresses, that macro doesn't exist
+                        and     G2, mac_ram_mask        wz    ' extract RAM address
+                        
+              if_nz     rdword  G1, G2                        ' if there is a RAM address, read 
+              if_z      sub     mac_ind, #1                   ' if not allocated, go back one byte to execute call again later 
+              if_z      jmp     #fvm_ldmc                     ' if there is not RAM address, go tlo ldmc
+
+                        rdword  mac_len, G1                   ' set macro length
+                        shl     mac_len, #1                   ' clear upper bit (allocation bit)
+                        shr     mac_len, #1                   ' ^
+
+                        mov     G3, macro                     ' copy macro base address into G3
+                        mov     macro, G2                     ' set macro base address
+                        add     macro, #6                     ' skip over 6 header bytes
+                        add     G1, #2                        ' point to macro number
+
+                        wrword  mac_number, G1                ' write current macro number
+                        mov     mac_number, G0                ' set new macro number
+                        add     G1, #2                        ' point to macro program counter
+                        
+                        wrword  mac_ind, G1                   ' write program counter
+                        xor     mac_ind, mac_ind              ' zero index
+                        jmp     #fvm_end_processing           ' leave
+                                                               
 
 fvm_retmc
 
 fvm_ldmc
+                        call    #fvm_popstack                 ' read macro number
+                        call    #fvm_pushstack                ' write back
+
+                        wrbyte  G0, mm_addr                   ' write macro number
+                        mov     G0, #1
+                        wrbyte  G0, mm_req
+
 fvm_waits
+''
+'' FVM_waits waits for the signal posted to be equal to the byte on top of the stack.
+''    If WAITS 0 is issued, FVM will wait for any non-zero signal
+''
                         call    #fvm_popstack                 ' read data from stack
+                        or      G0, G0                  wz    ' ? - WAITS 0
+              if_z      jmp     #fvm_waits_01                 ' Y - wait for non-zero
 fvm_waits_00
                         rdbyte  G1, signal_ptr                ' read signal byte
                         cmp     G0, G1                  wz    ' ? - equal
-              if_z      jmp     #fvm_end_processing           ' Y - leave
+              if_nz     jmp     #fvm_waits_00                 ' N - reloop
+                        jmp     #fvm_end_processing           ' Y - exit
 
-                        cmp     G1, #$FF                wz    ' ? - termination
-              if_z      jmp     #fvm_end_processing           ' Y - ...we'll figure out what to do later
-                        jmp     #fvm_waits_00                 ' N - reloop
+fvm_waits_01
+                        rdbyte  G1, signal_ptr          wz    ' ? - signal not zero
+              if_nz     jmp     #fvm_end_processing           ' Y - exit
+                        jmp     #fvm_waits_01                 ' N - reloop
                         
 
+fvm_posts
+                        rdbyte  G0, stack_ptr                 ' read signal to post
+                        cmp     stack_ind, #1           wz,wc ' ensure we have data
+              if_b      jmp     #fvm_nodata                   '
+                        wrbyte  G0, signal_ptr                ' post
+                        jmp     #fvm_end_processing
+
+fvm_killw               ' I dont know what I was planning with this kill wait. I'll leave it for if anyone gets an idea.
                         
 fvm_btime
                         mov     G0, #(BRKT_TIMING_LEN*4)      ' ? available data
@@ -879,14 +963,6 @@ fvm_bwrit
 :rel_lock               lockclr b_req_lck
                         jmp     #fvm_end_processing           ' leave
 :pin_mask     long      BRKT_PIN_MASK_CON
-fvm_posts
-                        rdbyte  G0, stack_ptr                 ' read signal to post
-                        cmp     stack_ind, #1           wz,wc ' ensure we have data
-              if_b      jmp     #fvm_nodata                   '
-                        wrbyte  G0, signal_ptr                ' post
-                        jmp     #fvm_end_processing
-
-fvm_killw               ' I dont know what I was planning with this kill wait. I'll leave it for if anyone gets an idea.
 
 fvm_rdlong
 '' Read the big-endian long that is on the stack into G1
@@ -982,13 +1058,15 @@ fvm_end_processing
                         jmp     #fvm_process                  ' reloop
 
 
+mac_ram_mask  long      $7FFF
 stack_limit   long      FVM_DEFAULT_STACK_SIZE
 buffer_limit  long      FVM_DEFAULT_BUFFER_SIZE-1
 
 ' global resources
 pwm_base      long      0       ' PWM table
-macro_base    long      0       ' start of macro address table
 signal_ptr    long      0       ' FVM signal channel
+macro_base    long      0       ' start of macro address table
+macro_area    long      0       ' start of macro work area    
 
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 ' general registers
@@ -1004,11 +1082,10 @@ G7            long      0
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 ' VM components
 opcode        long      0       ' current opcode processed
-count         long      0       ' number of bytes processed
 flags         long      0       ' internal VM flags
 ' stack related variables
 stack_base    long      0       ' start of data stack
-stack_ind     long      0       ' current index in stack
+stack_ind     long      0       ' current index in stack (number of bytes on stack)
 stack_ptr     long      0       ' calculated at the start of each process
 ' interpreter data source
 buf_base      long      0       ' buffer ptr
@@ -1017,7 +1094,11 @@ buf_proc      long      0       ' index of buffer processed
 ' macro processor data source
 macro         long      0       ' start of macro (not including header)
 mac_len       long      0       ' length of macro
+mac_number    long      0       ' macro number
 mac_ind       long      0       ' macro index
+
+mm_addr       long      0
+mm_req        long      0
 ' brkt addresses
 b_time_lck    long      0
 b_time_ptr    long      0

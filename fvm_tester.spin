@@ -98,4 +98,51 @@ PUB signalTest(nSignals, sigaddr, feedback) | sig
         pst.Str(string(13, "Signal validated: "))
         pst.Hex(sig,2)
       sig--
-    
+
+PUB validatePWMWrite(pin, value, tableaddr)
+
+  byte[bufferAddr+byte[bufferIndexPtr]] := 1            ' PUSH opcode
+  byte[bufferAddr+byte[bufferIndexPtr]+1] := 0          ' length to push
+  byte[bufferAddr+byte[bufferIndexPtr]+2] := 2          ' length to push  
+  byte[bufferAddr+byte[bufferIndexPtr]+3] := value      ' data to push
+  byte[bufferAddr+byte[bufferIndexPtr]+4] := pin        ' data to push
+  byte[bufferAddr+byte[bufferIndexPtr]+5] := 3          ' WRITE opcode
+  byte[bufferAddr+byte[bufferIndexPtr]+6] := 2          ' POP opcode
+  byte[bufferAddr+byte[bufferIndexPtr]+7] := 0          ' number of bytes to pop
+  byte[bufferAddr+byte[bufferIndexPtr]+8] := 2          ' number of bytes to pop 
+  byte[bufferIndexPtr] := (byte[bufferIndexPtr]+9) // 256
+  
+  waitcnt(80000+cnt)
+  
+  if byte[tableaddr+(pin<<2)] := value
+    return true
+  else
+    return false
+
+PUB PWMTest(tableaddr, feedback) | pin, value
+
+  if feedback
+    pst.Str(string("Beginning PWM test ", 13))
+
+  pin := 0
+  value := 0
+
+  repeat while pin < 16
+    repeat while value < 256
+      if feedback
+        pst.Str(string(13, "Pin: "))
+        pst.Dec(pin)
+        pst.Str(string(" Value: "))
+        pst.Hex(value, 2)
+        
+      if validatePWMWrite(pin, value, tableaddr) == false
+        if feedback
+          pst.Str(string(13, "Failed."))
+        result := false
+        return
+      else
+        if feedback
+          pst.Str(string(": Success"))
+      value++
+    value := 0
+    pin++ 
