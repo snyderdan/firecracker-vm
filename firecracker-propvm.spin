@@ -844,11 +844,11 @@ fvm_bdelt
                         mov     G5, b_data_ptr                ' G3 contains start address of data buffers
 :find_buf     if_nz     add     G5, :buf_len                  ' Skip buffers we don't want to write into
               if_nz     djnz    G2, #:find_buf
-                        mov     G2, G1
+                        mov     G2, G1                        ' Make another copy of the delta to find index
                         and     G2, :delt_indmask             ' Isolate index
-                        shr     G2, #(2)
+                        shr     G2, #(2)                      '
                         add     G5, G2                        ' G5 contains start address of writes
-                        mov     G0, G1
+                        mov     G0, G1                        ' Make another copy so we can isolate the count
                         and     G0, :delt_cntmask
                         shr     G0, #(9+2)                    ' G0 now contains the number of bytes to write
                         call    #fvm_checkstack               ' Make sure we actually have enough data
@@ -860,9 +860,8 @@ fvm_bdelt
 :get_lock               lockset b_data_lck              wc
               if_c      jmp     #:get_lock
 :align_dest
-              '' TODO: Deal with aligned writes of less than 4 bytes
-              if_z      sub     G0, #4                        ' If we don't have to align, subtract 4 from the number of bytes to write
-              if_z      jmp     #:write_first                 ' if phase is 0, we can jump right to doing work
+              if_z      cmpsub     G0, #4               wc    ' If we don't have to align, subtract 4 from the number of bytes to write
+        if_z_and_nc     jmp     #:write_first                 ' if phase is 0 and we have at least a long to write, we can jump right to doing work
                         shl     G1, G6                        ' Discard high order bits we don't care about
                         mov     G3, G6                        ' Make a copy of the phase to calculate its inverse
                         subs    G3, #32                       ' 32 - phase = -(phase -32)
@@ -870,14 +869,14 @@ fvm_bdelt
                         shr     G7, G3                        ' Discard low order bits of the high order buffer
                         mov     G4, #%11111111                ' We'll scroll this to create the mask
                         mov     G3, #0                        ' Construct the mask in G3
-                        shl     G4, G7                        ' Shift mask left to its starting location
+                        shl     G4, G6                        ' Shift mask left to its starting location
 :mask_loop              or      G3, G4                        ' Construct a mask with ones where we want to replace data
                         shl     G4, #8
                         sub     G0, #1                  wz    ' If we run out of bytes in this delta, get out of the loop
-              if_nz     tjz     G4, #:mask_loop
-                        and     G1, G3                        ' Zero bits not under mask
+              if_nz     tjnz    G4, #:mask_loop
+                        and     G1, G3                        ' Zero bits not under mask in new data
                         rdlong  G2, G5                        ' Grab the long we'll be writing to
-                        andn    G2, G3                        ' Zero bits under the mask
+                        andn    G2, G3                        ' Zero bits under the mask in old data
                         or      G1, G2                        ' Construct the long to write back
 :write_first
                         wrlong  G1, G5                        ' Write the long back to the hub. This and all future writes can be done long-aligned
