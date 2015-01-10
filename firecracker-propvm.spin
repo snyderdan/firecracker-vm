@@ -71,12 +71,12 @@
 ''    - For each macro in RAM, there are six leading bytes that are of special use.
 ''    - The first word is for allocation. The leading bit is whether or not that
 ''      memory location is in use. The remaining 15-bits are the length of this area or
-''      it's length when it was previously allocated. 
+''      it's length when it was previously allocated.
 ''    - The next 4 bytes are for macro use. The first byte is null and just used
 ''      to maintain word alignment. The next byte is the macro number of the caller.
 ''      The next word is the program counter of the caller to return to.
 ''      (the program pointer is of the code section of the macro. Which means PC=0 is PC=macro_base+5)
-''      
+''
 ''
 '' What needs to be done -
 ''    - Create a test with another board to test SPI
@@ -276,33 +276,33 @@ PUB MacroManager | address, s, len1, len2, end, smallest
       smallest := 0                                     ' points to smallest open RAM block
 
       repeat while ((len2 <> 0) and (s < end))          ' search all allocated RAM blocks
-                                   
-        repeat while ((len2 & $8000) and (s < end))     ' search for every open allocation 
-          s += (len2 & $7FFF) + 6                       ' skip over ram block and descriptor                        
+
+        repeat while ((len2 & $8000) and (s < end))     ' search for every open allocation
+          s += (len2 & $7FFF) + 6                       ' skip over ram block and descriptor
           len2 := word[s]
 
         if len2 == 0
           quit
 
-        len2 &= $7FFF                                   ' extract length of block                        
+        len2 &= $7FFF                                   ' extract length of block
 
         if (len2 => len1)                               ' if the length of this block is large enough, continue
           if (!smallest)
             smallest := s                               ' if smallest is not set, set it as this block
           if (len2 < word[smallest])                    ' if this block is smaller than our current smallest, but still large enough for the macro
-            smallest := s                               ' set this block as the smallest area                  
-                                                     
-      if (!smallest and ((end - s) => len1))            ' if no good blocks were found, but we have space at this empty spot, write to it 
+            smallest := s                               ' set this block as the smallest area
+
+      if (!smallest and ((end - s) => len1))            ' if no good blocks were found, but we have space at this empty spot, write to it
         eeprom.ToRam(s, s+len1+6, address)              ' write macro to area
-        word[s] := len1                                 ' set length of area                                                        ' 
+        word[s] := len1                                 ' set length of area                                                        '
         FVM_manager_request := 0
         quit
-        
+
       elseif (smallest)
         eeprom.ToRam(smallest+2, smallest+len1+6, address+2) ' write to new allocation block, but maintain length of this area
         word[smallest] |= $8000                         ' indicate this block is allocated
         FVM_manager_request := 0                        ' indicate we are done
-        quit                                                                        
+        quit
 
     elseif (FVM_manager_request == MM_SAVE_MACRO)
     elseif (FVM_manager_request == MM_DEL_MACRO)
@@ -332,8 +332,8 @@ fvm_process
                         mov     stack_ptr, stack_base         ' load base address of stack
                         add     stack_ptr, stack_limit        ' go to 'bottom' of stack
                         sub     stack_ptr, stack_ind          ' calculate address of top of stack
-                        call    #fvm_getdata                  ' get opcode 
-                        
+                        call    #fvm_getdata                  ' get opcode
+
 fvm_eval_opcode
                         add     G0, #fvm_opcode_table         ' add opcode table address to get jump offset
                         jmp     G0                            ' jump to correct index into jump table
@@ -383,7 +383,7 @@ fvm_push
 '' bytes that follow are to be pushed to the stack. The macro takes
 '' a minimum of two bytes
 ''
-''                      
+''
                         call    #fvm_getdata                  ' get first length byte
 
                         mov     G1, G0                        ' copy first byte into G1
@@ -392,14 +392,14 @@ fvm_push
 
                         or      G1, G0                        ' construct length in G1
                         sub     G1, #1                  wz,wc ' decrement to relative
-              if_b      jmp     #fvm_end_processing           ' return if length specified was zero 
-                
+              if_b      jmp     #fvm_end_processing           ' return if length specified was zero
+
 fvm_push_00
                         call    #fvm_getdata                  ' read byte from input
                         call    #fvm_pushstack                ' push byte to stack
               if_z      jmp     #fvm_end_processing           ' see if we are done
                         sub     G1, #1                  wz    ' decrement byte count
-                        jmp     #fvm_push_00                  ' reloop      
+                        jmp     #fvm_push_00                  ' reloop
 
 
 fvm_pop
@@ -428,7 +428,7 @@ fvm_write
 ''
 ''
                         cmp     stack_ind, #2           wz,wc ' ? - have two bytes available
-                        
+
                         rdbyte  G1, stack_ptr                 ' read pin in the mean time for alignment
               if_b      jmp     #fvm_nodata                   ' N - error
                         add     stack_ptr, #1                 ' go to next stack value
@@ -437,12 +437,12 @@ fvm_write
                         and     G1, #$0F                      ' cap pin at 4 bits (16 pins)
                         shl     G1, #2                        ' multiply by 4 (pin table offset)
 
-                        ' following process scales 8-bit to 32-bit PWM (0x01010101 * value) 
+                        ' following process scales 8-bit to 32-bit PWM (0x01010101 * value)
                         mov     G2, G0                        ' copy value to G3
                         shl     G2, #8                        ' shift up 8 bits
                         or      G0, G2                        ' merge all 16-bits
                         mov     G2, G0                        ' repeat but with 16-bits
-                        
+
                         shl     G2, #16                       ' shift into upper 16-bits
                         or      G0, G2                        ' construct full 32-bit number
                         mov     G3, pwm_base                  ' copy PWM table base into G2
@@ -461,7 +461,7 @@ fvm_delay
 ''
                         cmp     stack_ind, #4           wz,wc ' ? - 4 bytes available
               if_b      jmp     #fvm_nodata                   ' N - error
-              
+
                         call    #fvm_rdlong                   ' construct number in G1
                         sub     G1, #2                  wz,wc ' adjust remaining time
               if_b      jmp     #fvm_end_processing           ' if time < 2 we leave
@@ -604,7 +604,7 @@ fvm_swap
                         call    #fvm_pushstack
                         mov     G0, G2                        ' push top-1
                         call    #fvm_pushstack
-                         
+
                         jmp     #fvm_end_processing
 
 fvm_dup
@@ -615,12 +615,12 @@ fvm_dup
 ''    bytes to be duplicated at a time. The duplication starts
 ''    at the furthest number from the top of the stack
 ''    and pushes that number first to clone the top of the stack
-''   
+''
                         call    #fvm_getdata                  ' get number of bytes to duplicate
 
-                        mov     G1, G0                  wz    ' G1 now contains number of bytes to duplicate 
+                        mov     G1, G0                  wz    ' G1 now contains number of bytes to duplicate
               if_z      jmp     #fvm_end_processing           ' leave if result is zero
-                        cmp     stack_ind, G1           wz,wc ' ? - enough data present on stack        
+                        cmp     stack_ind, G1           wz,wc ' ? - enough data present on stack
               if_b      jmp     #fvm_nodata                   ' N - error
 
                         sub     G1, #1                        ' decrement to relative
@@ -695,17 +695,17 @@ fvm_jmpr
                         rdbyte  G2, stack_ptr
                         or      G1, G2
                         shl     G1, #16                       ' shift relative number up 16 bits
-                        
+
                         sar     G1, #16                       ' sign extend value
                         adds    mac_ind, G1                   ' perform signed addition
               if_c      jmp     #fvm_err_processing           ' ensure we are still in memory limits
                         cmp     mac_len, mac_ind        wz,wc '
-                        
+
               if_ae     jmp     #fvm_err_processing           ' ensure we are within macro limit
                         mov     G0, macro                     ' load macro base
                         add     G0, mac_ind                   ' go to processing point
                         cmp     macro, G0               wz,wc '
-                        
+
               if_b      jmp     #fvm_err_processing           ' ensure we are within macro limit
                         jmp     #fvm_end_processing           ' leave
 
@@ -721,13 +721,13 @@ fvm_calmc
                         mov     G1, G0                        ' copy macro number into G1
                         shl     G1, #2                        ' adjust to long offset in table
                         add     G1, macro_base                ' add base of macro table
-                        
+
                         rdlong  G2, G1                  wz    ' read macro address
               if_z      jmp     #fvm_err_processing           ' if there are no addresses, that macro doesn't exist
                         and     G2, mac_ram_mask        wz    ' extract RAM address
-                        
-              if_nz     rdword  G1, G2                        ' if there is a RAM address, read 
-              if_z      sub     mac_ind, #1                   ' if not allocated, go back one byte to execute call again later 
+
+              if_nz     rdword  G1, G2                        ' if there is a RAM address, read
+              if_z      sub     mac_ind, #1                   ' if not allocated, go back one byte to execute call again later
               if_z      jmp     #fvm_ldmc                     ' if there is not RAM address, go tlo ldmc
 
                         rdword  mac_len, G1                   ' set macro length
@@ -742,11 +742,11 @@ fvm_calmc
                         wrword  mac_number, G1                ' write current macro number
                         mov     mac_number, G0                ' set new macro number
                         add     G1, #2                        ' point to macro program counter
-                        
+
                         wrword  mac_ind, G1                   ' write program counter
                         xor     mac_ind, mac_ind              ' zero index
                         jmp     #fvm_end_processing           ' leave
-                                                               
+
 
 fvm_retmc
 
@@ -776,7 +776,7 @@ fvm_waits_01
                         rdbyte  G1, signal_ptr          wz    ' ? - signal not zero
               if_nz     jmp     #fvm_end_processing           ' Y - exit
                         jmp     #fvm_waits_01                 ' N - reloop
-                        
+
 
 fvm_posts
                         rdbyte  G0, stack_ptr                 ' read signal to post
@@ -786,7 +786,7 @@ fvm_posts
                         jmp     #fvm_end_processing
 
 fvm_killw               ' I dont know what I was planning with this kill wait. I'll leave it for if anyone gets an idea.
-                        
+
 fvm_btime
                         mov     G0, #(BRKT_TIMING_LEN*4)      ' ? available data
                         call    #fvm_checkstack
@@ -996,7 +996,7 @@ fvm_checkstack
 fvm_checkstack_ret
               if_ae     ret                                   ' Y - return
                         jmp     #fvm_nodata                   ' N - error
-              
+
 
 fvm_popstack
 ''
@@ -1007,12 +1007,12 @@ fvm_popstack
 ''
                         cmp     stack_ind, #1           wz,wc ' ? - A byte available to pop
               if_b      jmp     #fvm_nodata                   ' N - send error
-                        sub     stack_ind, #1                 ' decrement index 
-              
+                        sub     stack_ind, #1                 ' decrement index
+
                         rdbyte  G0, stack_ptr                 ' read byte on stack
                         add     stack_ptr, #1                 ' go up
 fvm_popstack_ret
-                        ret   
+                        ret
 
 fvm_pushstack
 ''
@@ -1024,7 +1024,7 @@ fvm_pushstack
                         cmp     stack_ind, stack_limit  wz,wc ' ? - space available to push to
               if_ae     jmp     #fvm_stack_error              ' N - send error
                         sub     stack_ptr, #1                 ' decrement pointer
-              
+
                         wrbyte  G0, stack_ptr                 ' write byte to stack
                         add     stack_ind, #1                 ' go up
 fvm_pushstack_ret
@@ -1042,13 +1042,13 @@ fvm_getdata
                         sub     G0, buf_proc                  ' subtract index to get length available
                         cmp     G0, #1                  wz,wc ' ? - a byte available to read
 
-              if_b      jmp     fvm_getdata                   ' N - and so we wait. 
+              if_b      jmp     fvm_getdata                   ' N - and so we wait.
                         mov     G0, buf_base                  ' load G0 with buffer pointer
                         add     G0, buf_proc                  ' go to next process index
                         add     buf_proc, #1                  ' increment processed index
 
                         rdbyte  G0, G0                        ' grab byte
-                        and     buf_proc, buffer_limit        ' handle wrap around  
+                        and     buf_proc, buffer_limit        ' handle wrap around
 fvm_getdata_ret
                         ret
 
@@ -1068,7 +1068,7 @@ buffer_limit  long      FVM_DEFAULT_BUFFER_SIZE-1
 pwm_base      long      0       ' PWM table
 signal_ptr    long      0       ' FVM signal channel
 macro_base    long      0       ' start of macro address table
-macro_area    long      0       ' start of macro work area    
+macro_area    long      0       ' start of macro work area
 
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 ' general registers
@@ -1622,7 +1622,7 @@ i_fvm_rdlong
                         or      i_G1, i_G4
                         sub     i_stack_ptr, #4
 i_fvm_rdlong_ret          ret
-          
+
 i_fvm_checkstack
 '' FVM_checkstack
 ''    i_G0 contains length of data requested
@@ -1631,7 +1631,7 @@ i_fvm_checkstack
                         cmp     i_stack_ind, i_G0           wz,wc ' ? - we have enough data
 i_fvm_checkstack_ret
               if_be     ret                                   ' Y
-                        jmp     #i_fvm_nodata             
+                        jmp     #i_fvm_nodata
 
 i_fvm_getdata             ' gets data from either buffer or i_macro area
 
