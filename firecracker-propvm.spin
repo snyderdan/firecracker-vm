@@ -967,6 +967,9 @@ fvm_bwrit
 fvm_rdlong
 '' Read the big-endian long that is on the stack into G1
 '' G2-G4 is FUBAR after
+'' Takes 8+4+4+4+4 = 24 cycles in the aligned case
+'' Takes 24+4+4+4+8+4+(4+4)*4+8+4+4 = 96 cycles in the unaligned case
+'' Currently not IO aligned
                         rdlong  G1, stack_ptr                 ' Grab Lower order long
                         mov     G2, stack_ptr
                         and     G2, #%11                wz    ' Determine phase of stack_ptr
