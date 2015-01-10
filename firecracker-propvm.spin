@@ -910,37 +910,37 @@ fvm_bdelt
                         cmp     G0, #4                  wz, wc' Check if we've got at least another long to write
               if_be     jmp     #:write_last                  ' If not, go to special-cased write last
 :write_loop
-                        call    #fvm_rdlong
-                        add     stack_ptr, #4
-                        mov     G1, G2
-                        shl     G2, G6
-                        or      G7, G2
-                        mov     G3, G6
-                        subs    G3, #32
-                        neg     G3, G3
-                        shr     G1, G3
-                        mov     G1, G7
-                        wrlong  G7, G5
-                        add     G5, #4
-                        sub     G0, #4
+                        call    #fvm_rdlong                   ' A precaution if we have not actually aligned the stack. Consider replacing with rdlong
+                        add     stack_ptr, #4                 ' Consume the long from the stack
+                        mov     G2, G1                        ' Make a copy of the long we grabbed
+                        shl     G2, G6                        ' Discard higher bits depending on phase
+                        or      G7, G2                        ' Construct the long to write back
+                        wrlong  G7, G5                        ' Write the constructed long back to hubram
+                        add     G5, #4                        ' Increment Destination
+                        sub     G0, #4                        ' Decrement # of bytes to write
                         cmp     G0, #4                  wz, wc' Check if we've got at least another long to write
               if_be     jmp     #:write_last                  ' If not, go to special-cased write last
+                        mov     G3, G6                        ' Make a copy of phase to calculate its inverse
+                        subs    G3, #32                       ' Inverse = -(phase - 32)
+                        neg     G3, G3                        ' G3 now contains inverse phase
+                        shr     G1, G3                        ' Discard lowest bits depending on inverse phase
+                        mov     G7, G1                        ' Move extra bits to low order buffer
+                        jmp     #:write_loop                  ' repeat until we need to do write_last
 :write_last
-                        call    #fvm_rdlong
-                        shl     G1, G6
-                        or      G7, G1
-                        rdlong  G2, G5
-                        mov     G3, #0
-                        mov     G4, #%11111111
-:last_mask_loop         or      G3, G4
-                        shl     G4, #8
-                        djnz    G0, #:last_mask_loop
-                        andn    G2, G3
-                        and     G7, G3
-                        or      G7, G2
-                        wrlong  G7, G5
-:rel_lock               lockclr b_data_lck
-
+                        call    #fvm_rdlong                   ' Grab the last long from the stack. We may not be aligned
+                        shl     G1, G6                        ' Discard its highest #phase bits
+                        or      G7, G1                        ' Construct the long to write back
+                        rdlong  G2, G5                        ' Grab the long already in memory
+                        mov     G3, #0                        ' We'll construct a mask in G3 with 1's where we want new data and 0's where we want old
+                        mov     G4, #%11111111                ' Set up the basis of the mask in G4, which will be scrolled to create the mask
+:last_mask_loop         or      G3, G4                        ' set bits in the mask corresponding to the phase of G4
+                        shl     G4, #8                        ' Shift G4 to the next phase
+                        djnz    G0, #:last_mask_loop          ' Get out if we are out of bytes to write
+                        andn    G2, G3                        ' Zero bits in the old data where the mask is set
+                        and     G7, G3                        ' Zero bits in the new data where the mask is not set
+                        or      G7, G2                        ' Merge the old and new data
+                        wrlong  G7, G5                        ' Write the long back
+:rel_lock               lockclr b_data_lck                    ' Release the lock on the data buffers
                         jmp     #fvm_end_processing           ' leave
 :delt_pinmask long      %000000000000_000000000_000000000_11
 :delt_indmask long      %000000000000_000000000_111111111_00
