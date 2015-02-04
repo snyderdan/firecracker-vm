@@ -198,7 +198,7 @@ signalTesting byte      FVM_PUSH_OPCODE, 0, 1, $FE, FVM_POSTS_OPCODE, FVM_POP_OP
 
 PUB Start | n
 
-  tester.Start(@fvm_buffer, @fvm_buffer_index, false)
+  tester.Start(@fvm_buffer, @fvm_buffer_index, true)
 
   dira := $0000_FFFF     ' configure outputs for our purposes
   buf_addr := @FVM_buffer
@@ -236,8 +236,8 @@ PUB Start | n
   brkt_tim_lock := @BRKTA_tim_lock
   cognew(@Bottlerocket, 0)
 
-  tester.execute(@signalTesting, 8)
-  'tester.signalTest(254,@fvm_signal,true)
+  'tester.execute(@signalTesting, 8)
+  tester.signalTest(254,@fvm_signal,true)
 
 PUB MacroManager | address, s, len1, len2, end, smallest
 
